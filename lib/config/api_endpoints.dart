@@ -1,7 +1,7 @@
 //lib\config\api_endpoints.dart
 class ApiEndpoints {
-  // Base URLs
-  static const String productionBaseUrl = 'https://ice-inventory.vercel.app/';
+  // Base URLs - REMOVE trailing slash
+  static const String productionBaseUrl = 'https://ice-inventory.vercel.app';
   static const String developmentBaseUrl = 'http://localhost:3000';
 
   // 🔐 Authentication

@@ -1,0 +1,222 @@
+// lib/features/orders/models/order_model.dart
+
+class OrderModel {
+  final String id;
+  final String userId;
+  final String orderId;
+  final String? serialNumber;
+  final String? shopName;
+  
+  // Customer Details
+  final String? customerId;
+  final String customerName;
+  final String customerAddress;
+  final String? customerContact;
+  final double? customerLat;
+  final double? customerLng;
+  
+  // Items
+  final List<OrderItem> items;
+  final List<OrderItem>? freeItems;
+  final Map<String, dynamic>? quantitySummary;
+  
+  // Pricing
+  final double subtotal;
+  final double discountPercentage;
+  final double total;
+  final String? remarks;
+  
+  // Settlement
+  final String status; // "Unsettled" | "settled"
+  final String? settlementMethod;
+  final double settlementAmount;
+  
+  // Delivery
+  final String? deliveryPartnerId;
+  final String deliveryStatus; // "Pending" | "On the Way" | "Delivered"
+  final DateTime? deliveryAssignedAt;
+  final DateTime? deliveryOnTheWayAt;
+  final DateTime? deliveryCompletedAt;
+  final String? deliveryNotes;
+  
+  final DateTime createdAt;
+  final DateTime? updatedAt;
+
+  OrderModel({
+    required this.id,
+    required this.userId,
+    required this.orderId,
+    this.serialNumber,
+    this.shopName,
+    this.customerId,
+    required this.customerName,
+    required this.customerAddress,
+    this.customerContact,
+    this.customerLat,
+    this.customerLng,
+    required this.items,
+    this.freeItems,
+    this.quantitySummary,
+    required this.subtotal,
+    required this.discountPercentage,
+    required this.total,
+    this.remarks,
+    required this.status,
+    this.settlementMethod,
+    required this.settlementAmount,
+    this.deliveryPartnerId,
+    required this.deliveryStatus,
+    this.deliveryAssignedAt,
+    this.deliveryOnTheWayAt,
+    this.deliveryCompletedAt,
+    this.deliveryNotes,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  factory OrderModel.fromJson(Map<String, dynamic> json) {
+    return OrderModel(
+      id: json['_id']?.toString() ?? '',
+      userId: json['userId']?.toString() ?? '',
+      orderId: json['orderId']?.toString() ?? '',
+      serialNumber: json['serialNumber']?.toString(),
+      shopName: json['shopName']?.toString(),
+      customerId: json['customerId']?.toString(),
+      customerName: json['customerName']?.toString() ?? 'Unknown',
+      customerAddress: json['customerAddress']?.toString() ?? '',
+      customerContact: json['customerContact']?.toString(),
+      customerLat: json['customerLat']?.toDouble(),
+      customerLng: json['customerLng']?.toDouble(),
+      items: (json['items'] as List?)
+              ?.map((item) => OrderItem.fromJson(item))
+              .toList() ??
+          [],
+      freeItems: (json['freeItems'] as List?)
+          ?.map((item) => OrderItem.fromJson(item))
+          .toList(),
+      quantitySummary: json['quantitySummary'] as Map<String, dynamic>?,
+      subtotal: (json['subtotal'] ?? 0).toDouble(),
+      discountPercentage: (json['discountPercentage'] ?? 0).toDouble(),
+      total: (json['total'] ?? 0).toDouble(),
+      remarks: json['remarks']?.toString(),
+      status: json['status']?.toString() ?? 'Unsettled',
+      settlementMethod: json['settlementMethod']?.toString(),
+      settlementAmount: (json['settlementAmount'] ?? 0).toDouble(),
+      deliveryPartnerId: json['deliveryPartnerId']?.toString(),
+      deliveryStatus: json['deliveryStatus']?.toString() ?? 'Pending',
+      deliveryAssignedAt: json['deliveryAssignedAt'] != null
+          ? DateTime.parse(json['deliveryAssignedAt'])
+          : null,
+      deliveryOnTheWayAt: json['deliveryOnTheWayAt'] != null
+          ? DateTime.parse(json['deliveryOnTheWayAt'])
+          : null,
+      deliveryCompletedAt: json['deliveryCompletedAt'] != null
+          ? DateTime.parse(json['deliveryCompletedAt'])
+          : null,
+      deliveryNotes: json['deliveryNotes']?.toString(),
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'])
+          : DateTime.now(),
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'])
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      '_id': id,
+      'userId': userId,
+      'orderId': orderId,
+      'serialNumber': serialNumber,
+      'shopName': shopName,
+      'customerId': customerId,
+      'customerName': customerName,
+      'customerAddress': customerAddress,
+      'customerContact': customerContact,
+      'customerLat': customerLat,
+      'customerLng': customerLng,
+      'items': items.map((item) => item.toJson()).toList(),
+      'freeItems': freeItems?.map((item) => item.toJson()).toList(),
+      'quantitySummary': quantitySummary,
+      'subtotal': subtotal,
+      'discountPercentage': discountPercentage,
+      'total': total,
+      'remarks': remarks,
+      'status': status,
+      'settlementMethod': settlementMethod,
+      'settlementAmount': settlementAmount,
+      'deliveryPartnerId': deliveryPartnerId,
+      'deliveryStatus': deliveryStatus,
+      'deliveryAssignedAt': deliveryAssignedAt?.toIso8601String(),
+      'deliveryOnTheWayAt': deliveryOnTheWayAt?.toIso8601String(),
+      'deliveryCompletedAt': deliveryCompletedAt?.toIso8601String(),
+      'deliveryNotes': deliveryNotes,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+    };
+  }
+
+  int get totalItems {
+    int count = items.fold(0, (sum, item) => sum + (item.quantity ?? 0));
+    if (freeItems != null) {
+      count += freeItems!.fold(0, (sum, item) => sum + (item.quantity ?? 0));
+    }
+    return count;
+  }
+
+  bool get canUpdateStatus {
+    return deliveryStatus != 'Delivered';
+  }
+
+  String get nextStatus {
+    switch (deliveryStatus) {
+      case 'Pending':
+        return 'On the Way';
+      case 'On the Way':
+        return 'Delivered';
+      default:
+        return deliveryStatus;
+    }
+  }
+}
+
+class OrderItem {
+  final String? productId;
+  final String productName;
+  final int? quantity;
+  final String? unit;
+  final double? price;
+  final double? total;
+
+  OrderItem({
+    this.productId,
+    required this.productName,
+    this.quantity,
+    this.unit,
+    this.price,
+    this.total,
+  });
+
+  factory OrderItem.fromJson(Map<String, dynamic> json) {
+    return OrderItem(
+      productId: json['productId']?.toString(),
+      productName: json['productName']?.toString() ?? 'Unknown',
+      quantity: json['quantity']?.toInt(),
+      unit: json['unit']?.toString(),
+      price: json['price']?.toDouble(),
+      total: json['total']?.toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'productId': productId,
+      'productName': productName,
+      'quantity': quantity,
+      'unit': unit,
+      'price': price,
+      'total': total,
+    };
+  }
+}
