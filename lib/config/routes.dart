@@ -1,19 +1,17 @@
 //lib\config\routes.dart
 import 'package:flutter/material.dart';
-
-// Auth screens
 import '../features/auth/screens/splash_screen.dart';
 import '../features/auth/screens/home_screen.dart';
 import '../features/auth/screens/register_screen.dart';
 import '../features/auth/screens/pending_screen.dart';
 import '../features/auth/screens/login_screen.dart';
 import '../features/auth/screens/otp_screen.dart';
+import '../features/orders/screens/pending_orders_screen.dart';
 
 class AppRoutes {
-  /// Initial route
   static const String initial = splash;
 
-  // ================= AUTH =================
+  // Auth Screens
   static const String splash = '/splash';
   static const String welcome = '/welcome';
   static const String login = '/login';
@@ -21,7 +19,7 @@ class AppRoutes {
   static const String otp = '/otp';
   static const String pending = '/pending';
 
-  // ================= MAIN =================
+  // Main Screens
   static const String orders = '/orders';
   static const String orderDetails = '/order-details';
   static const String deliveredOrders = '/delivered-orders';
@@ -30,16 +28,16 @@ class AppRoutes {
   static const String profile = '/profile';
 
   static final Map<String, WidgetBuilder> routes = {
-    // ---------- AUTH ----------
+    // Auth
     splash: (_) => const SplashScreen(),
-    welcome: (_) => const HomeScreen(), // ✅ REAL WELCOME UI
+    welcome: (_) => const HomeScreen(),
     login: (_) => const LoginScreen(),
     otp: (_) => const OtpScreen(),
     register: (_) => const RegisterScreen(),
     pending: (_) => const PendingApprovalScreen(),
 
-    // ---------- MAIN ----------
-    orders: (_) => _placeholder('PENDING ORDERS'),
+    // Main
+    orders: (_) => const PendingOrdersScreen(),
     orderDetails: (_) => _placeholder('ORDER DETAILS'),
     deliveredOrders: (_) => _placeholder('DELIVERED ORDERS'),
     stickyNote: (_) => _placeholder('STICKY NOTE'),

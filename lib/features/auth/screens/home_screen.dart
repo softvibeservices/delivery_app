@@ -162,7 +162,6 @@ class HomeScreen extends StatelessWidget {
                         // SUPPORT
                         GestureDetector(
                           onTap: () {
-                            // TODO: Support action
                           },
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,

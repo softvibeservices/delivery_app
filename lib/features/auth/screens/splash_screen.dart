@@ -1,5 +1,4 @@
 //lib\features\auth\screens\splash_screen.dart
-
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -129,7 +128,7 @@ class _SplashScreenState extends State<SplashScreen>
 
             Column(
               children: [
-                const _AnimatedLoaderBar(),
+                const AnimatedLoaderBar(),
                 const SizedBox(height: 12),
                 Text(
                   'SYNCING COLD CHAIN',
@@ -146,7 +145,7 @@ class _SplashScreenState extends State<SplashScreen>
               height: 6,
               width: 140,
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.08),
+                color: Colors.black.withOpacity(0.08),
                 borderRadius: BorderRadius.circular(100),
               ),
             ),
@@ -173,7 +172,7 @@ class _GlassLogoCard extends StatelessWidget {
           width: 260,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: primary.withValues(alpha: 0.05),
+            color: primary.withOpacity(0.05),
           ),
         ),
         Container(
@@ -181,7 +180,7 @@ class _GlassLogoCard extends StatelessWidget {
           width: 230,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: primary.withValues(alpha: 0.1)),
+            border: Border.all(color: primary.withOpacity(0.1)),
           ),
         ),
         ClipRRect(
@@ -192,12 +191,12 @@ class _GlassLogoCard extends StatelessWidget {
               height: 180,
               width: 180,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.45),
+                color: Colors.white.withOpacity(0.45),
                 borderRadius: BorderRadius.circular(48),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.6)),
+                border: Border.all(color: Colors.white.withOpacity(0.6)),
                 boxShadow: [
                   BoxShadow(
-                    color: primary.withValues(alpha: 0.15),
+                    color: primary.withOpacity(0.15),
                     blurRadius: 40,
                     offset: const Offset(0, 20),
                   ),
@@ -239,14 +238,14 @@ class _GlassLogoCard extends StatelessWidget {
   }
 }
 
-class _AnimatedLoaderBar extends StatefulWidget {
-  const _AnimatedLoaderBar();
+class AnimatedLoaderBar extends StatefulWidget {
+  const AnimatedLoaderBar({super.key});
 
   @override
-  State<_AnimatedLoaderBar> createState() => _AnimatedLoaderBarState();
+  State<AnimatedLoaderBar> createState() => _AnimatedLoaderBarState();
 }
 
-class _AnimatedLoaderBarState extends State<_AnimatedLoaderBar>
+class _AnimatedLoaderBarState extends State<AnimatedLoaderBar>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
@@ -276,7 +275,7 @@ class _AnimatedLoaderBarState extends State<_AnimatedLoaderBar>
         children: [
           Container(
             decoration: BoxDecoration(
-              color: primary.withValues(alpha: 0.15),
+              color: primary.withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
             ),
           ),

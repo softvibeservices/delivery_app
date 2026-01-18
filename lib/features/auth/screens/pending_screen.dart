@@ -1,3 +1,4 @@
+//lib\features\auth\screens\pending_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../config/routes.dart';
@@ -19,7 +20,7 @@ class PendingApprovalScreen extends StatelessWidget {
             icon: const Icon(Icons.refresh),
             onPressed: () async {
               await auth.initialize();
-              if (auth.status == AuthStatus.authenticated) {
+              if (auth.status == AuthStatus.authenticated && context.mounted) {
                 Navigator.pushReplacementNamed(context, AppRoutes.orders);
               }
             },
@@ -51,11 +52,13 @@ class PendingApprovalScreen extends StatelessWidget {
               ElevatedButton(
                 onPressed: () async {
                   await auth.logout();
-                  Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    AppRoutes.login,
-                    (_) => false,
-                  );
+                  if (context.mounted) {
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      AppRoutes.login,
+                      (_) => false,
+                    );
+                  }
                 },
                 child: const Text('Logout'),
               ),
