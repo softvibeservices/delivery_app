@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/orders_provider.dart';
 import '../models/order_model.dart';
+import '../widgets/bottom_nav_bar.dart'; // ✅ ADDED
 import 'order_details_screen.dart';
 
 class PendingOrdersScreen extends StatefulWidget {
@@ -18,7 +19,6 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
   String _searchQuery = '';
   String _selectedSort = 'All Orders';
   final TextEditingController _searchController = TextEditingController();
-  int _selectedNavIndex = 0;
 
   @override
   void initState() {
@@ -54,38 +54,6 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
     return provider.sortOrders(filtered, _selectedSort);
   }
 
-  void _onNavItemTapped(int index) {
-    setState(() {
-      _selectedNavIndex = index;
-    });
-
-    switch (index) {
-      case 0:
-        // Current Orders (already on this screen)
-        break;
-      case 1:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Delivered Orders screen - Coming soon')),
-        );
-        break;
-      case 2:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sticky Notes screen - Coming soon')),
-        );
-        break;
-      case 3:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Go to Customer screen - Coming soon')),
-        );
-        break;
-      case 4:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile screen - Coming soon')),
-        );
-        break;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).primaryColor;
@@ -95,7 +63,7 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white.withOpacity(0.9),
-        automaticallyImplyLeading: false, // ✅ FIXED: Removes back button
+        automaticallyImplyLeading: false,
         title: const Text(
           'Current Orders',
           style: TextStyle(fontWeight: FontWeight.bold),
@@ -142,216 +110,188 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
 
           return RefreshIndicator(
             onRefresh: _refreshOrders,
-            child: Column(
-              children: [
-                // Search Bar (Filter button removed)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Container(
-                    height: 44,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.search, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: const InputDecoration(
-                              hintText: 'Search by customer or shop...',
-                              border: InputBorder.none,
-                            ),
-                            onChanged: _filterOrders,
-                          ),
-                        ),
-                        if (_searchQuery.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.clear, size: 18),
-                            onPressed: _clearSearch,
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Last Updated Time
-                if (provider.lastUpdated != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'Last updated: ${DateFormat('hh:mm a').format(provider.lastUpdated!)}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ),
-
-                // Error Message
-                if (provider.error != null)
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.red.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline, color: Colors.red.shade700),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              provider.error!,
-                              style: TextStyle(color: Colors.red.shade700),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: () => provider.clearError(),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                // Sort Chips
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: SizedBox(
-                    height: 36,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        _chip(
-                          'All Orders',
-                          active: _selectedSort == 'All Orders',
-                          color: primary,
-                          onTap: () {
-                            setState(() => _selectedSort = 'All Orders');
-                          },
-                        ),
-                        _chip(
-                          'Pending',
-                          active: _selectedSort == 'Pending',
-                          color: Colors.orange,
-                          onTap: () {
-                            setState(() => _selectedSort = 'Pending');
-                          },
-                        ),
-                        _chip(
-                          'On the Way',
-                          active: _selectedSort == 'On the Way',
-                          color: Colors.blue,
-                          onTap: () {
-                            setState(() => _selectedSort = 'On the Way');
-                          },
-                        ),
-                        _chip(
-                          'Quantity',
-                          active: _selectedSort == 'Quantity',
-                          color: Colors.green,
-                          onTap: () {
-                            setState(() => _selectedSort = 'Quantity');
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Orders List
-                Expanded(
-                  child: provider.isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : isEmpty
-                          ? _emptyState()
-                          : ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                              itemCount: displayOrders.length,
-                              itemBuilder: (context, index) {
-                                return _orderCard(
-                                  displayOrders[index],
-                                  primary,
-                                  context,
-                                  provider,
-                                );
-                              },
-                            ),
-                ),
-              ],
-            ),
+            child: isEmpty && !provider.isLoading
+                ? _buildEmptyStateWithScroll()
+                : _buildOrdersList(provider, displayOrders, isEmpty, primary),
           );
         },
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.shade300,
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+      bottomNavigationBar: const OrdersBottomNavBar(
+        selectedIndex: 0, // ✅ 0 for Pending Orders
+      ),
+    );
+  }
+
+  Widget _buildEmptyStateWithScroll() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Column(
               children: [
-                _navItem(
-                  Icons.assignment,
-                  'Current\nOrders',
-                  0,
-                  _selectedNavIndex == 0,
-                  Theme.of(context).primaryColor,
+                _buildSearchAndFilters(),
+                SizedBox(height: constraints.maxHeight * 0.2),
+                _emptyState(),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOrdersList(
+    OrdersProvider provider,
+    List<OrderModel> displayOrders,
+    bool isEmpty,
+    Color primary,
+  ) {
+    return Column(
+      children: [
+        _buildSearchAndFilters(),
+
+        // Last Updated Time
+        if (provider.lastUpdated != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Last updated: ${DateFormat('hh:mm a').format(provider.lastUpdated!)}',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+          ),
+
+        // Error Message
+        if (provider.error != null)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red.shade700),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      provider.error!,
+                      style: TextStyle(color: Colors.red.shade700),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => provider.clearError(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // Sort Chips
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: SizedBox(
+            height: 36,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _chip(
+                  'All Orders',
+                  active: _selectedSort == 'All Orders',
+                  color: Theme.of(context).primaryColor,
+                  onTap: () => setState(() => _selectedSort = 'All Orders'),
                 ),
-                _navItem(
-                  Icons.history,
-                  'Delivered\nOrders',
-                  1,
-                  _selectedNavIndex == 1,
-                  Theme.of(context).primaryColor,
+                _chip(
+                  'Pending',
+                  active: _selectedSort == 'Pending',
+                  color: Colors.orange,
+                  onTap: () => setState(() => _selectedSort = 'Pending'),
                 ),
-                _navItem(
-                  Icons.sticky_note_2,
-                  'Sticky\nNotes',
-                  2,
-                  _selectedNavIndex == 2,
-                  Theme.of(context).primaryColor,
+                _chip(
+                  'On the Way',
+                  active: _selectedSort == 'On the Way',
+                  color: Colors.blue,
+                  onTap: () => setState(() => _selectedSort = 'On the Way'),
                 ),
-                _navItem(
-                  Icons.directions,
-                  'Go to\nCustomer',
-                  3,
-                  _selectedNavIndex == 3,
-                  Theme.of(context).primaryColor,
-                ),
-                _navItem(
-                  Icons.person,
-                  'Profile',
-                  4,
-                  _selectedNavIndex == 4,
-                  Theme.of(context).primaryColor,
+                _chip(
+                  'Quantity',
+                  active: _selectedSort == 'Quantity',
+                  color: Colors.green,
+                  onTap: () => setState(() => _selectedSort = 'Quantity'),
                 ),
               ],
             ),
           ),
         ),
+
+        // Orders List
+        Expanded(
+          child: provider.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                  itemCount: displayOrders.length,
+                  itemBuilder: (context, index) {
+                    return _orderCard(
+                      displayOrders[index],
+                      primary,
+                      context,
+                      provider,
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchAndFilters() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.search, color: Colors.grey),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  hintText: 'Search by customer or shop...',
+                  border: InputBorder.none,
+                ),
+                onChanged: _filterOrders,
+              ),
+            ),
+            if (_searchQuery.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.clear, size: 18),
+                onPressed: _clearSearch,
+              ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _chip(String label, {bool active = false, required Color color, VoidCallback? onTap}) {
+  Widget _chip(
+    String label, {
+    bool active = false,
+    required Color color,
+    VoidCallback? onTap,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: GestureDetector(
@@ -369,7 +309,12 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
     );
   }
 
-  Widget _orderCard(OrderModel order, Color primary, BuildContext context, OrdersProvider provider) {
+  Widget _orderCard(
+    OrderModel order,
+    Color primary,
+    BuildContext context,
+    OrdersProvider provider,
+  ) {
     final status = order.deliveryStatus;
     final totalQuantity = order.totalItems;
     final orderDate = DateFormat('MMM dd, hh:mm a').format(order.createdAt);
@@ -572,43 +517,9 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(color: Colors.grey),
-          ),
+          child: Text(text, style: const TextStyle(color: Colors.grey)),
         ),
       ],
-    );
-  }
-
-  Widget _navItem(IconData icon, String label, int index, bool active, Color primary) {
-    return InkWell(
-      onTap: () => _onNavItemTapped(index),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: active ? primary : Colors.grey,
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: active ? FontWeight.bold : FontWeight.w500,
-                color: active ? primary : Colors.grey,
-                height: 1.2,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -625,7 +536,7 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            _searchQuery.isNotEmpty 
+            _searchQuery.isNotEmpty
                 ? 'Try adjusting your search'
                 : 'Pull down to refresh',
             style: TextStyle(color: Colors.grey.shade500),

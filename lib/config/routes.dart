@@ -10,6 +10,7 @@ import '../features/auth/screens/otp_screen.dart';
 import '../features/orders/screens/pending_orders_screen.dart';
 import '../features/orders/screens/order_details_screen.dart';
 import '../features/orders/models/order_model.dart';
+import '../features/sticky_notes/screens/sticky_notes_list_screen.dart';
 
 class AppRoutes {
   static const String initial = splash;
@@ -57,9 +58,11 @@ class AppRoutes {
 
       // Placeholder Routes
       case deliveredOrders:
-        return MaterialPageRoute(builder: (_) => _placeholder('DELIVERED ORDERS'));
+        return MaterialPageRoute(
+          builder: (_) => _placeholder('DELIVERED ORDERS'),
+        );
       case stickyNote:
-        return MaterialPageRoute(builder: (_) => _placeholder('STICKY NOTE'));
+        return MaterialPageRoute(builder: (_) => const StickyNotesListScreen());
       case goTo:
         return MaterialPageRoute(builder: (_) => _placeholder('GO TO'));
       case profile:
@@ -68,9 +71,7 @@ class AppRoutes {
       default:
         return MaterialPageRoute(
           builder: (_) => Scaffold(
-            body: Center(
-              child: Text('Route ${settings.name} not found'),
-            ),
+            body: Center(child: Text('Route ${settings.name} not found')),
           ),
         );
     }

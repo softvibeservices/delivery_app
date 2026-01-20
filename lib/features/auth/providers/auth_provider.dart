@@ -1,4 +1,4 @@
-//lib\features\auth\providers\auth_provider.dart
+// lib/features/auth/providers/auth_provider.dart
 
 import 'package:flutter/material.dart';
 import '../../../core/services/api_service.dart';
@@ -87,16 +87,26 @@ class AuthProvider extends ChangeNotifier {
       );
 
       final token = response.data['token'];
+      final partner = response.data['partner']; // ✅ IMPORTANT - Get partner data
 
-      // ✅ Backend already ensures "approved"
+      // ✅ Save token
       await StorageService.saveToken(token);
       await StorageService.savePartnerStatus('approved');
+
+      // ✅ CRITICAL - Save user data (this is what was missing!)
+      if (partner != null) {
+        await StorageService.saveUser(partner);
+        debugPrint('✅ User data saved: $partner');
+      } else {
+        debugPrint('⚠️ No partner data in response');
+      }
 
       _status = AuthStatus.authenticated;
 
       notifyListeners();
       return null;
     } catch (e) {
+      debugPrint('❌ OTP Verification Error: $e');
       return 'Invalid or expired OTP';
     } finally {
       _isLoading = false;

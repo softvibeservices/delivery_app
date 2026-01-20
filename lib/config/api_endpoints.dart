@@ -1,4 +1,5 @@
-//lib\config\api_endpoints.dart
+// lib/config/api_endpoints.dart
+
 class ApiEndpoints {
   // Base URLs - REMOVE trailing slash
   static const String productionBaseUrl = 'https://ice-inventory.vercel.app';
@@ -14,12 +15,17 @@ class ApiEndpoints {
   static const String deliveredOrders = '/api/delivery/delivered-orders';
   static const String updateOrderStatus = '/api/delivery/update-order-status';
 
-  // 📝 Sticky Notes
-  static const String createStickyNote = '/api/delivery/sticky-notes';
-  static const String searchProducts = '/api/delivery/search-products';
+  // 📝 Sticky Notes (✅ UPDATED - Single endpoint for all CRUD operations)
+  static const String stickyNotes = '/api/delivery/sticky-notes';
+  // GET    /api/delivery/sticky-notes        - Fetch all sticky notes
+  // POST   /api/delivery/sticky-notes        - Create sticky note
+  // PUT    /api/delivery/sticky-notes        - Update sticky note
+  // DELETE /api/delivery/sticky-notes        - Delete sticky note
 
-  // 🔍 Customers
+  // 🔍 Search & Autocomplete (✅ NEW)
   static const String searchCustomers = '/api/delivery/search-customers';
+  static const String searchProducts = '/api/delivery/search-products';
+  static const String customerDetails = '/api/delivery/customer-details';
   static const String searchHistory = '/api/delivery/search-history';
 
   // 👤 Profile

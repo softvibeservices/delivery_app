@@ -1,5 +1,7 @@
 // lib/features/orders/models/order_model.dart
 
+import 'package:flutter/material.dart';
+
 class OrderModel {
   final String id;
   final String userId;
@@ -74,6 +76,30 @@ class OrderModel {
     this.updatedAt,
   });
 
+  // ✅ FIXED: Helper method to parse UTC and convert to local time (IST)
+  static DateTime _parseUtcToLocal(dynamic dateValue) {
+    if (dateValue == null) return DateTime.now();
+    
+    try {
+      DateTime utcDate;
+      if (dateValue is String) {
+        // Parse as UTC
+        utcDate = DateTime.parse(dateValue).toUtc();
+      } else if (dateValue is DateTime) {
+        utcDate = dateValue.toUtc();
+      } else {
+        debugPrint('⚠️ Unexpected date type: ${dateValue.runtimeType}');
+        return DateTime.now();
+      }
+      
+      // Convert to local time (IST on Indian devices)
+      return utcDate.toLocal();
+    } catch (e) {
+      debugPrint('❌ Error parsing date: $e');
+      return DateTime.now();
+    }
+  }
+
   factory OrderModel.fromJson(Map<String, dynamic> json) {
     return OrderModel(
       id: json['_id']?.toString() ?? '',
@@ -104,21 +130,22 @@ class OrderModel {
       settlementAmount: (json['settlementAmount'] ?? 0).toDouble(),
       deliveryPartnerId: json['deliveryPartnerId']?.toString(),
       deliveryStatus: json['deliveryStatus']?.toString() ?? 'Pending',
+      // ✅ FIXED: All dates are now converted from UTC to local time
       deliveryAssignedAt: json['deliveryAssignedAt'] != null
-          ? DateTime.parse(json['deliveryAssignedAt'])
+          ? _parseUtcToLocal(json['deliveryAssignedAt'])
           : null,
       deliveryOnTheWayAt: json['deliveryOnTheWayAt'] != null
-          ? DateTime.parse(json['deliveryOnTheWayAt'])
+          ? _parseUtcToLocal(json['deliveryOnTheWayAt'])
           : null,
       deliveryCompletedAt: json['deliveryCompletedAt'] != null
-          ? DateTime.parse(json['deliveryCompletedAt'])
+          ? _parseUtcToLocal(json['deliveryCompletedAt'])
           : null,
       deliveryNotes: json['deliveryNotes']?.toString(),
       createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'])
+          ? _parseUtcToLocal(json['createdAt'])
           : DateTime.now(),
       updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'])
+          ? _parseUtcToLocal(json['updatedAt'])
           : null,
     );
   }
@@ -148,12 +175,12 @@ class OrderModel {
       'settlementAmount': settlementAmount,
       'deliveryPartnerId': deliveryPartnerId,
       'deliveryStatus': deliveryStatus,
-      'deliveryAssignedAt': deliveryAssignedAt?.toIso8601String(),
-      'deliveryOnTheWayAt': deliveryOnTheWayAt?.toIso8601String(),
-      'deliveryCompletedAt': deliveryCompletedAt?.toIso8601String(),
+      'deliveryAssignedAt': deliveryAssignedAt?.toUtc().toIso8601String(),
+      'deliveryOnTheWayAt': deliveryOnTheWayAt?.toUtc().toIso8601String(),
+      'deliveryCompletedAt': deliveryCompletedAt?.toUtc().toIso8601String(),
       'deliveryNotes': deliveryNotes,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt?.toIso8601String(),
+      'createdAt': createdAt.toUtc().toIso8601String(),
+      'updatedAt': updatedAt?.toUtc().toIso8601String(),
     };
   }
 
