@@ -3,7 +3,9 @@
 import 'package:flutter/material.dart';
 import '../screens/pending_orders_screen.dart';
 import '../screens/delivered_orders_screen.dart';
-import '../../sticky_notes/screens/sticky_notes_list_screen.dart'; // ✅ NEW
+import '../../sticky_notes/screens/sticky_notes_list_screen.dart';
+import '../../go_to/screens/go_to_screen.dart';
+import '../../profile/screens/profile_screen.dart'; // ✅ NEW
 
 class OrdersBottomNavBar extends StatelessWidget {
   final int selectedIndex;
@@ -40,7 +42,7 @@ class OrdersBottomNavBar extends StatelessWidget {
         }
         break;
       case 2:
-        // Sticky Notes ✅ UPDATED
+        // Sticky Notes
         if (selectedIndex != 2) {
           Navigator.pushAndRemoveUntil(
             context,
@@ -53,15 +55,27 @@ class OrdersBottomNavBar extends StatelessWidget {
         break;
       case 3:
         // Go to Customer
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Go to Customer screen - Coming soon')),
-        );
+        if (selectedIndex != 3) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const GoToScreen(),
+            ),
+            (route) => false,
+          );
+        }
         break;
       case 4:
-        // Profile
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile screen - Coming soon')),
-        );
+        // Profile ✅ UPDATED
+        if (selectedIndex != 4) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const ProfileScreen(),
+            ),
+            (route) => false,
+          );
+        }
         break;
     }
   }
