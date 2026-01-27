@@ -3,12 +3,15 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/storage_service.dart';
+import '../../../core/services/location_service.dart';
+import '../../../core/services/permission_helper.dart';
 import '../../../config/api_endpoints.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated, pending, rejected }
 
 class AuthProvider extends ChangeNotifier {
   final ApiService _apiService = ApiService();
+  final LocationService _locationService = LocationService();
 
   AuthStatus _status = AuthStatus.unknown;
   AuthStatus get status => _status;
@@ -18,6 +21,15 @@ class AuthProvider extends ChangeNotifier {
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
+
+  bool get isLocationTracking => _locationService.isTracking;
+
+  BuildContext? _context;
+
+  // ✅ Set context for permission dialogs
+  void setContext(BuildContext context) {
+    _context = context;
+  }
 
   // 🔁 Called on app launch (Splash)
   Future<void> initialize() async {
@@ -31,6 +43,7 @@ class AuthProvider extends ChangeNotifier {
       switch (status) {
         case 'approved':
           _status = AuthStatus.authenticated;
+          await _startLocationTracking();
           break;
         case 'pending':
           _status = AuthStatus.pending;
@@ -87,13 +100,11 @@ class AuthProvider extends ChangeNotifier {
       );
 
       final token = response.data['token'];
-      final partner = response.data['partner']; // ✅ IMPORTANT - Get partner data
+      final partner = response.data['partner'];
 
-      // ✅ Save token
       await StorageService.saveToken(token);
       await StorageService.savePartnerStatus('approved');
 
-      // ✅ CRITICAL - Save user data (this is what was missing!)
       if (partner != null) {
         await StorageService.saveUser(partner);
         debugPrint('✅ User data saved: $partner');
@@ -102,6 +113,8 @@ class AuthProvider extends ChangeNotifier {
       }
 
       _status = AuthStatus.authenticated;
+
+      await _startLocationTracking();
 
       notifyListeners();
       return null;
@@ -116,13 +129,14 @@ class AuthProvider extends ChangeNotifier {
 
   // 🚪 LOGOUT
   Future<void> logout() async {
+    await _stopLocationTracking();
     await StorageService.clearAll();
     _status = AuthStatus.unauthenticated;
     _partnerId = null;
     notifyListeners();
   }
 
-  // 📝 REGISTER (UNCHANGED)
+  // 📝 REGISTER
   Future<String?> register({
     required String name,
     required String email,
@@ -159,6 +173,85 @@ class AuthProvider extends ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  // ========= LOCATION TRACKING =========
+
+  /// Start location tracking with proper permission handling
+  Future<void> _startLocationTracking() async {
+    try {
+      debugPrint('🎯 Attempting to start location tracking...');
+
+      // Check GPS first
+      if (!await _locationService.isGpsEnabled()) {
+        debugPrint('⚠️ GPS is disabled');
+        if (_context != null && _context!.mounted) {
+          final shouldOpen = await PermissionHelper.showGpsDisabledDialog(_context!);
+          if (shouldOpen) {
+            await _locationService.openLocationSettings();
+          }
+        }
+        return;
+      }
+
+      // Check if we have "Always Allow" permission
+      if (!await _locationService.hasAlwaysPermission()) {
+        debugPrint('⚠️ Need "Always Allow" permission');
+        
+        // Show explanation dialog
+        if (_context != null && _context!.mounted) {
+          final userAgreed = await PermissionHelper.showLocationPermissionDialog(_context!);
+          if (!userAgreed) {
+            debugPrint('❌ User declined permission request');
+            return;
+          }
+        }
+
+        // Request permission
+        final granted = await _locationService.requestAlwaysPermission();
+        
+        if (!granted) {
+          debugPrint('❌ Permission denied');
+          if (_context != null && _context!.mounted) {
+            await PermissionHelper.showPermissionDeniedDialog(_context!);
+          }
+          return;
+        }
+      }
+
+      // Start tracking
+      final started = await _locationService.startTracking();
+      
+      if (started) {
+        debugPrint('✅ Location tracking started successfully');
+      } else {
+        debugPrint('❌ Failed to start location tracking');
+      }
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ Error starting location tracking: $e');
+    }
+  }
+
+  /// Stop location tracking
+  Future<void> _stopLocationTracking() async {
+    try {
+      await _locationService.stopTracking();
+      debugPrint('✅ Location tracking stopped');
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ Error stopping location tracking: $e');
+    }
+  }
+
+  /// Manually toggle tracking (for debug/testing)
+  Future<void> toggleLocationTracking() async {
+    if (_locationService.isTracking) {
+      await _stopLocationTracking();
+    } else {
+      await _startLocationTracking();
     }
   }
 }
