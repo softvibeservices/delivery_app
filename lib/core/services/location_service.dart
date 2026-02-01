@@ -1,5 +1,5 @@
 // lib/core/services/location_service.dart
-// FIXED - Compatible with Geolocator 11.0.0
+// UPDATED - Accurate tracking in foreground AND background
 
 import 'dart:async';
 import 'dart:convert';
@@ -20,7 +20,7 @@ class LocationService {
   Timer? _locationTimer;
   Position? _lastPosition;
   bool _isTracking = false;
-  int _updateInterval = 5;
+  int _updateInterval = 30; // ✅ Changed to 30 seconds (matches background)
   final Battery _battery = Battery();
   final List<Map<String, dynamic>> _offlineQueue = [];
 
@@ -90,19 +90,20 @@ class LocationService {
     }
 
     _isTracking = true;
-    debugPrint('🎯 Started location tracking');
+    debugPrint('🎯 Started location tracking (FOREGROUND + BACKGROUND)');
 
     await _loadOfflineQueue();
 
-    // ✅ Start foreground updates
+    // ✅ Start foreground updates (30 seconds - matches background)
     _locationTimer = Timer.periodic(
       Duration(seconds: _updateInterval),
       (_) => _updateLocation(),
     );
 
-    // ✅ Start background service
+    // ✅ Start SILENT background service
     await BackgroundLocationService.startTracking();
 
+    // Initial update
     _updateLocation();
 
     return true;
@@ -119,14 +120,12 @@ class LocationService {
     _isTracking = false;
     _lastPosition = null;
     
-    debugPrint('🛑 Stopped location tracking');
+    debugPrint('🛑 Stopped location tracking (FOREGROUND + BACKGROUND)');
   }
 
   Future<void> _updateLocation() async {
     try {
-      await _adjustIntervalBasedOnBattery();
-
-      debugPrint('📍 Getting foreground location (HIGH ACCURACY)...');
+      debugPrint('📍 [FOREGROUND] Getting location (HIGH ACCURACY)...');
 
       // ✅ Use BEST accuracy (compatible with Geolocator 11.0.0)
       final position = await Geolocator.getCurrentPosition(
@@ -134,7 +133,7 @@ class LocationService {
         timeLimit: const Duration(seconds: 15),
       );
 
-      // Distance filter
+      // Distance filter (skip if moved less than 5m)
       if (_lastPosition != null) {
         final distance = Geolocator.distanceBetween(
           _lastPosition!.latitude,
@@ -144,7 +143,7 @@ class LocationService {
         );
 
         if (distance < 5) {
-          debugPrint('⏭️ Skipped: Moved only ${distance.toStringAsFixed(1)}m');
+          debugPrint('⏭️ [FOREGROUND] Skipped: Moved only ${distance.toStringAsFixed(1)}m');
           return;
         }
       }
@@ -162,13 +161,13 @@ class LocationService {
         'timestamp': position.timestamp.toIso8601String(),
       };
 
-      debugPrint('✅ Foreground location: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}');
-      debugPrint('📊 Accuracy: ${position.accuracy.toStringAsFixed(1)}m | Battery: $batteryLevel%');
+      debugPrint('✅ [FOREGROUND] Location: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}');
+      debugPrint('📊 [FOREGROUND] Accuracy: ${position.accuracy.toStringAsFixed(1)}m | Battery: $batteryLevel%');
 
       await _sendLocationToBackend(locationData);
 
     } catch (e) {
-      debugPrint('❌ Error updating location: $e');
+      debugPrint('❌ [FOREGROUND] Error updating location: $e');
     }
   }
 
@@ -182,14 +181,14 @@ class LocationService {
       );
 
       if (response.statusCode == 200) {
-        debugPrint('✅ Location sent successfully');
+        debugPrint('✅ [FOREGROUND] Location sent successfully');
         
         if (_offlineQueue.isNotEmpty) {
           await _sendQueuedLocations();
         }
       }
     } catch (e) {
-      debugPrint('❌ Error sending location: $e');
+      debugPrint('❌ [FOREGROUND] Error sending location: $e');
       await _addToOfflineQueue(locationData);
     }
   }
@@ -266,30 +265,6 @@ class LocationService {
     _offlineQueue.clear();
     await _saveOfflineQueue();
     debugPrint('🗑️ Offline queue cleared');
-  }
-
-  // ========= BATTERY OPTIMIZATION =========
-
-  Future<void> _adjustIntervalBasedOnBattery() async {
-    try {
-      final batteryLevel = await _battery.batteryLevel;
-
-      int newInterval;
-      if (batteryLevel < 15) {
-        newInterval = 10;
-      } else if (batteryLevel < 20) {
-        newInterval = 7;
-      } else {
-        newInterval = 5;
-      }
-
-      if (newInterval != _updateInterval) {
-        _updateInterval = newInterval;
-        debugPrint('🔋 Battery $batteryLevel% → Update interval: ${_updateInterval}s');
-      }
-    } catch (e) {
-      debugPrint('❌ Error checking battery: $e');
-    }
   }
 
   // ========= TEST METHODS =========

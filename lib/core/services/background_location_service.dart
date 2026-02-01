@@ -1,53 +1,28 @@
 // lib/core/services/background_location_service.dart
-// FIXED - Compatible with Geolocator 11.0.0
+// UPDATED - NO NOTIFICATIONS + Silent Background Tracking
 
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class BackgroundLocationService {
-  static const notificationChannelId = 'location_tracking_channel';
-  static const notificationId = 888;
-
-  // ========= INITIALIZE SERVICE =========
+  // ========= INITIALIZE SERVICE (NO NOTIFICATION CHANNEL NEEDED) =========
 
   static Future<void> initialize() async {
     final service = FlutterBackgroundService();
 
-    // Create notification channel
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      notificationChannelId,
-      'Location Tracking',
-      description: 'Tracks delivery partner location in background',
-      importance: Importance.low,
-      playSound: false,
-    );
-
-    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-        FlutterLocalNotificationsPlugin();
-
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-
-    // Configure service
+    // Configure service - NO notification setup
     await service.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: onStart,
         autoStart: false,
-        isForegroundMode: true,
-        notificationChannelId: notificationChannelId,
-        initialNotificationTitle: 'Ice Cream Delivery',
-        initialNotificationContent: 'Initializing location tracking...',
-        foregroundServiceNotificationId: notificationId,
-        foregroundServiceTypes: [AndroidForegroundType.location],
+        isForegroundMode: false, // ✅ Changed to FALSE - silent background mode
+        // ❌ Removed all notification-related parameters
       ),
       iosConfiguration: IosConfiguration(
         autoStart: false,
@@ -56,7 +31,7 @@ class BackgroundLocationService {
       ),
     );
 
-    debugPrint('✅ Background service initialized');
+    debugPrint('✅ Background service initialized (SILENT MODE)');
   }
 
   // ========= SERVICE ENTRY POINT =========
@@ -65,35 +40,13 @@ class BackgroundLocationService {
   static void onStart(ServiceInstance service) async {
     DartPluginRegistrant.ensureInitialized();
 
-    debugPrint('🎯 Background service STARTED');
+    debugPrint('🎯 Background service STARTED (SILENT)');
 
     Position? lastPosition;
     Timer? locationTimer;
     int updateCount = 0;
 
-    // Notification plugin
-    final FlutterLocalNotificationsPlugin notifications =
-        FlutterLocalNotificationsPlugin();
-
-    void updateNotification(String content) {
-      notifications.show(
-        notificationId,
-        '🚚 Ice Cream Delivery',
-        content,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            notificationChannelId,
-            'Location Tracking',
-            icon: 'ic_launcher',
-            ongoing: true,
-            priority: Priority.low,
-            importance: Importance.low,
-            playSound: false,
-            enableVibration: false,
-          ),
-        ),
-      );
-    }
+    // ❌ REMOVED: All notification code
 
     // Get and send location
     Future<void> updateLocation() async {
@@ -119,7 +72,7 @@ class BackgroundLocationService {
         debugPrint('📍 [BACKGROUND] Got location: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}');
         debugPrint('📊 [BACKGROUND] Accuracy: ${position.accuracy.toStringAsFixed(1)}m');
 
-        // Check distance filter
+        // Check distance filter (skip if moved less than 5m)
         if (lastPosition != null) {
           final distance = Geolocator.distanceBetween(
             lastPosition!.latitude,
@@ -164,21 +117,12 @@ class BackgroundLocationService {
         );
 
         if (response.statusCode == 200) {
-          debugPrint('✅ [BACKGROUND] Location sent (#$updateCount)');
-          
-          final now = DateTime.now();
-          final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-          
-          updateNotification(
-            '📍 Active • Last: $timeStr • Battery: $batteryLevel% • Acc: ${position.accuracy.toStringAsFixed(0)}m',
-          );
+          debugPrint('✅ [BACKGROUND] Location sent (#$updateCount) - Battery: $batteryLevel%');
         } else {
           debugPrint('❌ [BACKGROUND] Failed: ${response.statusCode}');
-          updateNotification('⚠️ Tracking (waiting for network)');
         }
       } catch (e) {
         debugPrint('❌ [BACKGROUND] Error: $e');
-        updateNotification('⚠️ Tracking (GPS error)');
       }
     }
 
@@ -197,9 +141,6 @@ class BackgroundLocationService {
       locationTimer?.cancel();
       service.stopSelf();
     });
-
-    // Bring to foreground
-    service.invoke('update');
   }
 
   // iOS background handler
@@ -212,7 +153,7 @@ class BackgroundLocationService {
 
   // ========= PUBLIC METHODS =========
 
-  /// Start background tracking
+  /// Start background tracking (SILENT - NO NOTIFICATIONS)
   static Future<void> startTracking() async {
     try {
       final service = FlutterBackgroundService();
@@ -225,7 +166,7 @@ class BackgroundLocationService {
       }
 
       await service.startService();
-      debugPrint('✅ Background service STARTED');
+      debugPrint('✅ Background service STARTED (SILENT MODE)');
     } catch (e) {
       debugPrint('❌ Error starting service: $e');
     }
