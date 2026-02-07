@@ -83,7 +83,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              '© 2024 All rights reserved',
+              '© 2025 All rights reserved',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey.shade600,

@@ -2,6 +2,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import '../../../config/routes.dart';
 import '../providers/auth_provider.dart';
@@ -21,6 +22,10 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
+
+    // ✅ Remove native splash immediately when Flutter splash shows
+    // This creates a seamless transition from native to Flutter splash
+    FlutterNativeSplash.remove();
 
     _controller = AnimationController(
       vsync: this,

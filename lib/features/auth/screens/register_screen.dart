@@ -1,3 +1,4 @@
+//lib\features\auth\screens\register_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../config/routes.dart';
@@ -18,6 +19,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _phone = TextEditingController();
   final _adminEmail = TextEditingController();
   final _password = TextEditingController();
+  
+  final _nameFocus = FocusNode();
+  final _emailFocus = FocusNode();
+  final _phoneFocus = FocusNode();
+  final _adminEmailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
 
   bool _obscure = true;
 
@@ -28,6 +35,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _phone.dispose();
     _adminEmail.dispose();
     _password.dispose();
+    
+    _nameFocus.dispose();
+    _emailFocus.dispose();
+    _phoneFocus.dispose();
+    _adminEmailFocus.dispose();
+    _passwordFocus.dispose();
+    
     super.dispose();
   }
 
@@ -47,9 +61,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!mounted) return;
 
     if (error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: Colors.red,
+        ),
+      );
     } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Registration successful! Waiting for approval.'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      
       Navigator.pushReplacementNamed(context, AppRoutes.pending);
     }
   }
@@ -63,7 +89,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Partner Registration'),
-        leading: BackButton(),
+        leading: const BackButton(),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -73,30 +99,112 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Column(
               children: [
                 const SizedBox(height: 20),
-                Icon(Icons.icecream, size: 72, color: primary),
+                
+                Container(
+                  height: 80,
+                  width: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [primary, primary.withValues(alpha: 0.6)],
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.icecream,
+                    size: 40,
+                    color: Colors.white,
+                  ),
+                ),
+                
                 const SizedBox(height: 12),
                 Text(
                   'Join the Scoop Team',
-                  style: theme.textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Become a delivery partner',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey,
+                  ),
                 ),
                 const SizedBox(height: 24),
 
-                _field('Full Name', _name),
-                _field('Email', _email, TextInputType.emailAddress),
-                _field('Phone (+91)', _phone, TextInputType.phone),
-                _field('Admin Email', _adminEmail,
-                    TextInputType.emailAddress),
-                _passwordField(),
+                _buildField(
+                  label: 'Full Name',
+                  controller: _name,
+                  icon: Icons.person,
+                  focusNode: _nameFocus,
+                  nextFocus: _emailFocus,
+                  textInputAction: TextInputAction.next,
+                ),
+                
+                _buildField(
+                  label: 'Email',
+                  controller: _email,
+                  icon: Icons.mail,
+                  keyboardType: TextInputType.emailAddress,
+                  focusNode: _emailFocus,
+                  nextFocus: _phoneFocus,
+                  textInputAction: TextInputAction.next,
+                ),
+                
+                _buildField(
+                  label: 'Phone (+91)',
+                  controller: _phone,
+                  icon: Icons.phone,
+                  keyboardType: TextInputType.phone,
+                  focusNode: _phoneFocus,
+                  nextFocus: _adminEmailFocus,
+                  textInputAction: TextInputAction.next,
+                ),
+                
+                _buildField(
+                  label: 'Admin Email',
+                  controller: _adminEmail,
+                  icon: Icons.admin_panel_settings,
+                  keyboardType: TextInputType.emailAddress,
+                  focusNode: _adminEmailFocus,
+                  nextFocus: _passwordFocus,
+                  textInputAction: TextInputAction.next,
+                ),
+                
+                _buildPasswordField(),
 
                 const SizedBox(height: 12),
-                Text(
-                  'Your account requires admin approval before login.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: Colors.grey),
+                
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.blue.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: Colors.blue.shade700,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Your account requires admin approval before login.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 20),
+                
+                const SizedBox(height: 24),
 
                 SizedBox(
                   width: double.infinity,
@@ -105,29 +213,52 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     onPressed: loading ? null : _submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primary,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: primary.withValues(alpha: 0.6),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
+                      elevation: 2,
                     ),
                     child: loading
-                        ? const CircularProgressIndicator(color: Colors.white)
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
                         : const Text(
                             'Register as Partner',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
+                              color: Colors.white,
                             ),
                           ),
                   ),
                 ),
 
                 const SizedBox(height: 24),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pushReplacementNamed(
-                        context, AppRoutes.login);
-                  },
-                  child: const Text('Already have an account? Login'),
+                
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Already have an account? ',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pushReplacementNamed(context, AppRoutes.login);
+                      },
+                      child: const Text(
+                        'Login',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -137,38 +268,67 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _field(String label, TextEditingController c,
-      [TextInputType? type]) {
+  Widget _buildField({
+    required String label,
+    required TextEditingController controller,
+    required IconData icon,
+    TextInputType? keyboardType,
+    required FocusNode focusNode,
+    FocusNode? nextFocus,
+    required TextInputAction textInputAction,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: TextFormField(
-        controller: c,
-        keyboardType: type,
-        validator: (v) =>
-            v == null || v.isEmpty ? 'Required' : null,
+        controller: controller,
+        focusNode: focusNode,
+        keyboardType: keyboardType,
+        textInputAction: textInputAction,
+        onFieldSubmitted: (_) {
+          if (nextFocus != null) {
+            FocusScope.of(context).requestFocus(nextFocus);
+          }
+        },
+        validator: (v) => v == null || v.isEmpty ? 'Required' : null,
         decoration: InputDecoration(
           labelText: label,
+          prefixIcon: Icon(icon),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(
+              color: Theme.of(context).primaryColor,
+              width: 2,
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _passwordField() {
+  Widget _buildPasswordField() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: TextFormField(
         controller: _password,
+        focusNode: _passwordFocus,
         obscureText: _obscure,
-        validator: (v) =>
-            v != null && v.length >= 6 ? null : 'Min 6 chars',
+        textInputAction: TextInputAction.done,
+        onFieldSubmitted: (_) {
+          if (_formKey.currentState!.validate()) {
+            _submit();
+          }
+        },
+        validator: (v) => v != null && v.length >= 6 ? null : 'Min 6 chars',
         decoration: InputDecoration(
           labelText: 'Password',
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
+          prefixIcon: const Icon(Icons.lock),
           suffixIcon: IconButton(
             icon: Icon(
               _obscure ? Icons.visibility : Icons.visibility_off,
@@ -176,6 +336,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
             onPressed: () {
               setState(() => _obscure = !_obscure);
             },
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(
+              color: Theme.of(context).primaryColor,
+              width: 2,
+            ),
           ),
         ),
       ),

@@ -9,6 +9,7 @@ class ApiEndpoints {
   static const String register = '/api/delivery/register';
   static const String loginOtp = '/api/delivery/login-otp';
   static const String verifyOtp = '/api/delivery/verify-otp';
+  static const String checkStatus = '/api/delivery/check-status';
 
   // 📦 Orders
   static const String pendingOrders = '/api/delivery/orders';

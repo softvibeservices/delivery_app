@@ -1,14 +1,24 @@
 // lib/main.dart
-// Initialize TRUE background service
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'core/services/background_location_service.dart';
 import 'app.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   
-  // ✅ Initialize TRUE background service
+  // ✅ UPDATED: Match native splash background color
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Color(0xFFE0F2FE), // ✅ Match native splash color
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: Color(0xFFE0F2FE), // ✅ Match native splash color
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
+  
   await BackgroundLocationService.initialize();
   
   runApp(const App());
