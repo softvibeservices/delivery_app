@@ -28,9 +28,14 @@ class ProductRow {
 }
 
 class StickyNoteFormProvider extends ChangeNotifier {
-  final ApiService _apiService = ApiService();
+  final ApiService _apiService;
 
-  // Customer selection
+  StickyNoteFormProvider(this._apiService) {
+    _initializeRows();
+  }
+
+  // ─── State ────────────────────────────────────────────────────────────────
+
   CustomerSuggestion? _selectedCustomer;
   CustomerSuggestion? get selectedCustomer => _selectedCustomer;
 
@@ -40,44 +45,32 @@ class StickyNoteFormProvider extends ChangeNotifier {
   bool _isSearchingCustomers = false;
   bool get isSearchingCustomers => _isSearchingCustomers;
 
-  // Product rows
   List<ProductRow> _productRows = [];
   List<ProductRow> get productRows => _productRows;
 
-  // Product suggestions cache (per row)
   Map<int, List<ProductSuggestion>> _productSuggestionsCache = {};
 
   bool _isSearchingProducts = false;
   bool get isSearchingProducts => _isSearchingProducts;
 
-  // Debounce timers
   Timer? _customerSearchTimer;
   Timer? _productSearchTimer;
-
-  // Form state
+  // ignore: prefer_final_fields
   bool _isSaving = false;
   bool get isSaving => _isSaving;
 
   String? _error;
   String? get error => _error;
 
-  StickyNoteFormProvider() {
-    _initializeRows();
-  }
+  // ─── INIT ─────────────────────────────────────────────────────────────────
 
   void _initializeRows() {
-    _productRows = List.generate(
-      5,
-      (index) => ProductRow(),
-    );
+    _productRows = List.generate(5, (_) => ProductRow());
   }
 
-  /// Initialize form for editing
   void initializeForEdit(StickyNoteModel note) {
-    debugPrint('🔧 Initializing form for edit');
-    debugPrint('📦 Note has ${note.items.length} items');
-    
-    // Set customer
+    debugPrint('🔧 Initialising form for edit — ${note.items.length} items');
+
     _selectedCustomer = CustomerSuggestion(
       id: note.customerId ?? '',
       name: note.customerName,
@@ -85,36 +78,26 @@ class StickyNoteFormProvider extends ChangeNotifier {
       shopAddress: '',
       contacts: [],
     );
-    
-    debugPrint('✅ Customer set: ${_selectedCustomer?.name}');
 
-    // Set product rows from existing items
-    _productRows = note.items.map((item) {
-      debugPrint('📝 Loading item: ${item.productName} (${item.quantity} ${item.unit})');
-      return ProductRow(
-        productId: item.productId,
-        productName: item.productName,
-        quantity: item.quantity.toString(),
-        unit: item.unit,
-      );
-    }).toList();
+    _productRows = note.items
+        .map(
+          (item) => ProductRow(
+            productId: item.productId,
+            productName: item.productName,
+            quantity: item.quantity.toString(),
+            unit: item.unit,
+          ),
+        )
+        .toList();
 
-    debugPrint('✅ Loaded ${_productRows.length} product rows');
-
-    // Add empty rows to reach minimum of 5
     while (_productRows.length < 5) {
       _productRows.add(ProductRow());
     }
 
-    debugPrint('✅ Final product rows count: ${_productRows.length}');
-    
-    // Clear any cached suggestions
     _productSuggestionsCache.clear();
-    
     notifyListeners();
   }
 
-  /// Reset form
   void resetForm() {
     _selectedCustomer = null;
     _customerSuggestions = [];
@@ -126,7 +109,8 @@ class StickyNoteFormProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Search customers with debouncing
+  // ─── CUSTOMER SEARCH ──────────────────────────────────────────────────────
+
   Future<void> searchCustomers(String query) async {
     if (query.trim().isEmpty) {
       _customerSuggestions = [];
@@ -134,13 +118,11 @@ class StickyNoteFormProvider extends ChangeNotifier {
       return;
     }
 
-    // Cancel previous timer
     _customerSearchTimer?.cancel();
-
-    // Start new timer
-    _customerSearchTimer = Timer(const Duration(milliseconds: 500), () async {
-      await _performCustomerSearch(query);
-    });
+    _customerSearchTimer = Timer(
+      const Duration(milliseconds: 500),
+      () => _performCustomerSearch(query),
+    );
   }
 
   Future<void> _performCustomerSearch(String query) async {
@@ -148,36 +130,23 @@ class StickyNoteFormProvider extends ChangeNotifier {
       _isSearchingCustomers = true;
       notifyListeners();
 
-      // ✅ FIXED: No need to manually get userId - backend will extract it from token
-      debugPrint('🔍 Searching customers for: $query');
+      debugPrint('🔍 Searching customers: $query');
 
       final response = await _apiService.dio.get(
         ApiEndpoints.searchCustomers,
-        queryParameters: {
-          'q': query, // ✅ Only send query, backend gets userId from auth token
-        },
+        queryParameters: {'q': query},
       );
-
-      debugPrint('📦 Customer search response: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final customers = response.data['customers'] as List?;
-        if (customers != null) {
-          _customerSuggestions = customers
-              .map((json) => CustomerSuggestion.fromJson(json))
-              .toList();
-          debugPrint('✅ Found ${_customerSuggestions.length} customers');
-        } else {
-          _customerSuggestions = [];
-          debugPrint('⚠️ No customers in response');
-        }
+        _customerSuggestions = customers
+                ?.map((json) => CustomerSuggestion.fromJson(json))
+                .toList() ??
+            [];
+        debugPrint('✅ Found ${_customerSuggestions.length} customers');
       }
     } on DioException catch (e) {
-      debugPrint('❌ Customer search error: ${e.type}');
-      debugPrint('❌ Message: ${e.message}');
-      if (e.response != null) {
-        debugPrint('❌ Response data: ${e.response?.data}');
-      }
+      debugPrint('❌ Customer search error: ${e.type} — ${e.message}');
       _customerSuggestions = [];
     } finally {
       _isSearchingCustomers = false;
@@ -185,20 +154,19 @@ class StickyNoteFormProvider extends ChangeNotifier {
     }
   }
 
-  /// Select customer
   void selectCustomer(CustomerSuggestion customer) {
     _selectedCustomer = customer;
     _customerSuggestions = [];
     notifyListeners();
   }
 
-  /// Clear customer selection
   void clearCustomer() {
     _selectedCustomer = null;
     notifyListeners();
   }
 
-  /// Search products with debouncing
+  // ─── PRODUCT SEARCH ───────────────────────────────────────────────────────
+
   Future<List<ProductSuggestion>> searchProducts(
     int rowIndex,
     String query,
@@ -209,16 +177,16 @@ class StickyNoteFormProvider extends ChangeNotifier {
       return [];
     }
 
-    // Cancel previous timer
     _productSearchTimer?.cancel();
-
-    // Use Completer to return async result
     final completer = Completer<List<ProductSuggestion>>();
 
-    _productSearchTimer = Timer(const Duration(milliseconds: 500), () async {
-      final results = await _performProductSearch(rowIndex, query);
-      completer.complete(results);
-    });
+    _productSearchTimer = Timer(
+      const Duration(milliseconds: 500),
+      () async {
+        final results = await _performProductSearch(rowIndex, query);
+        completer.complete(results);
+      },
+    );
 
     return completer.future;
   }
@@ -231,17 +199,12 @@ class StickyNoteFormProvider extends ChangeNotifier {
       _isSearchingProducts = true;
       notifyListeners();
 
-      // ✅ FIXED: No need to manually get userId - backend will extract it from token
       debugPrint('🔍 Searching products for row $rowIndex: $query');
 
       final response = await _apiService.dio.get(
         ApiEndpoints.searchProducts,
-        queryParameters: {
-          'q': query, // ✅ Only send query, backend gets userId from auth token
-        },
+        queryParameters: {'q': query},
       );
-
-      debugPrint('📦 Product search response: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final products = response.data['products'] as List?;
@@ -249,21 +212,15 @@ class StickyNoteFormProvider extends ChangeNotifier {
           final suggestions = products
               .map((json) => ProductSuggestion.fromJson(json))
               .toList();
-          
           _productSuggestionsCache[rowIndex] = suggestions;
           debugPrint('✅ Found ${suggestions.length} products for row $rowIndex');
           notifyListeners();
           return suggestions;
         }
       }
-
       return [];
     } on DioException catch (e) {
-      debugPrint('❌ Product search error: ${e.type}');
-      debugPrint('❌ Message: ${e.message}');
-      if (e.response != null) {
-        debugPrint('❌ Response data: ${e.response?.data}');
-      }
+      debugPrint('❌ Product search error: ${e.type} — ${e.message}');
       return [];
     } finally {
       _isSearchingProducts = false;
@@ -271,12 +228,12 @@ class StickyNoteFormProvider extends ChangeNotifier {
     }
   }
 
-  /// Get cached product suggestions for a row
   List<ProductSuggestion> getProductSuggestions(int rowIndex) {
     return _productSuggestionsCache[rowIndex] ?? [];
   }
 
-  /// Update product row
+  // ─── PRODUCT ROWS ─────────────────────────────────────────────────────────
+
   void updateProductRow(int index, ProductRow row) {
     if (index >= 0 && index < _productRows.length) {
       _productRows[index] = row;
@@ -284,7 +241,6 @@ class StickyNoteFormProvider extends ChangeNotifier {
     }
   }
 
-  /// Select product for a row
   void selectProduct(int rowIndex, ProductSuggestion product) {
     if (rowIndex >= 0 && rowIndex < _productRows.length) {
       _productRows[rowIndex] = ProductRow(
@@ -298,17 +254,11 @@ class StickyNoteFormProvider extends ChangeNotifier {
     }
   }
 
-  /// Add 3 more product rows
   void addMoreRows() {
-    _productRows.addAll([
-      ProductRow(),
-      ProductRow(),
-      ProductRow(),
-    ]);
+    _productRows.addAll([ProductRow(), ProductRow(), ProductRow()]);
     notifyListeners();
   }
 
-  /// Remove product row
   void removeProductRow(int index) {
     if (_productRows.length > 1) {
       _productRows.removeAt(index);
@@ -316,30 +266,27 @@ class StickyNoteFormProvider extends ChangeNotifier {
     }
   }
 
-  /// Calculate total quantity
+  // ─── COMPUTED ─────────────────────────────────────────────────────────────
+
   int get totalQuantity {
     return _productRows
         .where((row) => row.isValid)
         .fold(0, (sum, row) => sum + int.parse(row.quantity));
   }
 
-  /// Calculate total boxes
   int get totalBoxes {
     return _productRows
         .where((row) => row.isValid && row.unit == 'box')
         .fold(0, (sum, row) => sum + int.parse(row.quantity));
   }
 
-  /// Validate form
   bool isFormValid() {
-    // Check customer selected
     if (_selectedCustomer == null) {
       _error = 'Please select a customer';
       notifyListeners();
       return false;
     }
 
-    // Check at least one product
     final validProducts = _productRows.where((row) => row.isValid).toList();
     if (validProducts.isEmpty) {
       _error = 'Please add at least one product';
@@ -351,30 +298,29 @@ class StickyNoteFormProvider extends ChangeNotifier {
     return true;
   }
 
-  /// Build sticky note model from form data
   StickyNoteModel buildStickyNote({String? existingId}) {
     final validRows = _productRows.where((row) => row.isValid).toList();
-
     return StickyNoteModel(
       id: existingId ?? '',
-      userId: '', // Will be filled by backend
+      userId: '',
       customerId: _selectedCustomer?.id,
       customerName: _selectedCustomer!.name,
       shopName: _selectedCustomer!.shopName,
-      items: validRows.map((row) {
-        return StickyNoteItem(
-          productId: row.productId,
-          productName: row.productName,
-          quantity: int.parse(row.quantity),
-          unit: row.unit,
-        );
-      }).toList(),
+      items: validRows
+          .map(
+            (row) => StickyNoteItem(
+              productId: row.productId,
+              productName: row.productName,
+              quantity: int.parse(row.quantity),
+              unit: row.unit,
+            ),
+          )
+          .toList(),
       totalQuantity: totalQuantity,
       createdAt: DateTime.now(),
     );
   }
 
-  /// Clear error
   void clearError() {
     _error = null;
     notifyListeners();

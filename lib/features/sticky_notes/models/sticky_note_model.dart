@@ -1,4 +1,6 @@
 // lib/features/sticky_notes/models/sticky_note_model.dart
+// NOTE: getRelativeTime() has been removed from this model.
+// Use AppDateUtils.getRelativeTime(note.createdAt) everywhere instead.
 
 class StickyNoteModel {
   final String id;
@@ -67,25 +69,9 @@ class StickyNoteModel {
         .where((item) => item.unit == 'box')
         .fold(0, (sum, item) => sum + item.quantity);
   }
-
-  String getRelativeTime() {
-    final now = DateTime.now();
-    final difference = now.difference(createdAt);
-
-    if (difference.inMinutes < 60) {
-      final minutes = difference.inMinutes;
-      return '$minutes ${minutes == 1 ? 'minute' : 'minutes'} ago';
-    } else if (difference.inHours < 24) {
-      final hours = difference.inHours;
-      return '$hours ${hours == 1 ? 'hour' : 'hours'} ago';
-    } else if (difference.inDays < 7) {
-      final days = difference.inDays;
-      return '$days ${days == 1 ? 'day' : 'days'} ago';
-    } else {
-      return '${createdAt.day}/${createdAt.month}/${createdAt.year}';
-    }
-  }
 }
+
+// ─── StickyNoteItem ───────────────────────────────────────────────────────────
 
 class StickyNoteItem {
   final String? productId;
@@ -119,7 +105,8 @@ class StickyNoteItem {
   }
 }
 
-// ✅ Customer Model for Autocomplete
+// ─── CustomerSuggestion ───────────────────────────────────────────────────────
+
 class CustomerSuggestion {
   final String id;
   final String name;
@@ -152,7 +139,8 @@ class CustomerSuggestion {
   String? get primaryContact => contacts.isNotEmpty ? contacts.first : null;
 }
 
-// ✅ Product Model for Autocomplete
+// ─── ProductSuggestion ────────────────────────────────────────────────────────
+
 class ProductSuggestion {
   final String id;
   final String name;
@@ -182,16 +170,12 @@ class ProductSuggestion {
   }
 
   String get displayName {
-    if (category != null && category!.isNotEmpty) {
-      return '$name ($category)';
-    }
+    if (category != null && category!.isNotEmpty) return '$name ($category)';
     return name;
   }
 
   String get stockInfo {
-    if (currentStock != null && unit != null) {
-      return '$currentStock $unit';
-    }
+    if (currentStock != null && unit != null) return '$currentStock $unit';
     return '--';
   }
 }

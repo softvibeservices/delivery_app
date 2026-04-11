@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/sticky_note_form_provider.dart';
-import '../models/sticky_note_model.dart';
 
 class CustomerAutocompleteFieldModern extends StatefulWidget {
   const CustomerAutocompleteFieldModern({super.key});

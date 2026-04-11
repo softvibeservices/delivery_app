@@ -1,10 +1,13 @@
-//lib\features\auth\screens\splash_screen.dart
+// lib/features/auth/screens/splash_screen.dart
+
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import '../../../config/routes.dart';
+import '../../../core/services/background_location_service.dart';
 import '../providers/auth_provider.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -23,8 +26,6 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
 
-    // ✅ Remove native splash immediately when Flutter splash shows
-    // This creates a seamless transition from native to Flutter splash
     FlutterNativeSplash.remove();
 
     _controller = AnimationController(
@@ -32,10 +33,13 @@ class _SplashScreenState extends State<SplashScreen>
       duration: const Duration(seconds: 4),
     )..repeat(reverse: true);
 
-    _floatAnimation = Tween<double>(
-      begin: 0,
-      end: -12,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+    _floatAnimation = Tween<double>(begin: 0, end: -12).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+
+    // Initialise background service asynchronously so the splash renders
+    // immediately. By the time the user logs in, it is long ready.
+    unawaited(BackgroundLocationService.initialize());
 
     _handleNavigation();
   }
@@ -43,7 +47,6 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _handleNavigation() async {
     final authProvider = context.read<AuthProvider>();
 
-    authProvider.setContext(context);
     await authProvider.initialize();
     await Future.delayed(const Duration(seconds: 2));
 
@@ -51,11 +54,9 @@ class _SplashScreenState extends State<SplashScreen>
 
     switch (authProvider.status) {
       case AuthStatus.authenticated:
-        Navigator.pushReplacementNamed(context, AppRoutes.orders);
+        Navigator.pushReplacementNamed(context, AppRoutes.main);
         break;
       case AuthStatus.pending:
-        Navigator.pushReplacementNamed(context, AppRoutes.welcome);
-        break;
       case AuthStatus.rejected:
       case AuthStatus.unauthenticated:
       default:
@@ -90,12 +91,10 @@ class _SplashScreenState extends State<SplashScreen>
 
             AnimatedBuilder(
               animation: _floatAnimation,
-              builder: (_, child) {
-                return Transform.translate(
-                  offset: Offset(0, _floatAnimation.value),
-                  child: child,
-                );
-              },
+              builder: (_, child) => Transform.translate(
+                offset: Offset(0, _floatAnimation.value),
+                child: child,
+              ),
               child: const _GlassLogoCard(),
             ),
 
@@ -106,9 +105,9 @@ class _SplashScreenState extends State<SplashScreen>
                 Text(
                   'Scoop & Go',
                   style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                  ),
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
                 ),
                 const SizedBox(height: 6),
                 Container(
@@ -123,9 +122,9 @@ class _SplashScreenState extends State<SplashScreen>
                 Text(
                   'DELIVERY PARTNER',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    letterSpacing: 3,
-                    fontWeight: FontWeight.w600,
-                  ),
+                        letterSpacing: 3,
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
               ],
             ),
@@ -139,9 +138,9 @@ class _SplashScreenState extends State<SplashScreen>
                 Text(
                   'SYNCING COLD CHAIN',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    letterSpacing: 2,
-                    fontWeight: FontWeight.bold,
-                  ),
+                        letterSpacing: 2,
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
               ],
             ),
@@ -151,7 +150,7 @@ class _SplashScreenState extends State<SplashScreen>
               height: 6,
               width: 140,
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.08),
+                color: Colors.black.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(100),
               ),
             ),
@@ -162,6 +161,8 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _GlassLogoCard extends StatelessWidget {
   const _GlassLogoCard();
@@ -178,7 +179,7 @@ class _GlassLogoCard extends StatelessWidget {
           width: 260,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: primary.withOpacity(0.05),
+            color: primary.withValues(alpha: 0.05),
           ),
         ),
         Container(
@@ -186,7 +187,7 @@ class _GlassLogoCard extends StatelessWidget {
           width: 230,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: primary.withOpacity(0.1)),
+            border: Border.all(color: primary.withValues(alpha: 0.1)),
           ),
         ),
         ClipRRect(
@@ -197,12 +198,14 @@ class _GlassLogoCard extends StatelessWidget {
               height: 180,
               width: 180,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.45),
+                color: Colors.white.withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(48),
-                border: Border.all(color: Colors.white.withOpacity(0.6)),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.6),
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: primary.withOpacity(0.15),
+                    color: primary.withValues(alpha: 0.15),
                     blurRadius: 40,
                     offset: const Offset(0, 20),
                   ),
@@ -244,6 +247,8 @@ class _GlassLogoCard extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 class AnimatedLoaderBar extends StatefulWidget {
   const AnimatedLoaderBar({super.key});
 
@@ -281,25 +286,24 @@ class _AnimatedLoaderBarState extends State<AnimatedLoaderBar>
         children: [
           Container(
             decoration: BoxDecoration(
-              color: primary.withOpacity(0.15),
+              color: primary.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
           ),
           AnimatedBuilder(
             animation: _controller,
-            builder: (_, __) {
-              return Positioned(
-                left: (140 * _controller.value) - 60,
-                child: Container(
-                  width: 60,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: primary,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+            // Using _ instead of __ to satisfy unnecessary_underscores lint
+            builder: (_, child) => Positioned(
+              left: (140 * _controller.value) - 60,
+              child: Container(
+                width: 60,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: primary,
+                  borderRadius: BorderRadius.circular(10),
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ],
       ),

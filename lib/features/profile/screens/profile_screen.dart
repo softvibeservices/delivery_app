@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../core/services/storage_service.dart';
-import '../../orders/widgets/bottom_nav_bar.dart';
+
 import '../../../config/routes.dart';
 import 'personal_info_screen.dart';
 import 'security_password_screen.dart';
@@ -20,7 +20,6 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   String? _partnerName;
   String? _partnerEmail;
-  String? _partnerPhone;
   String? _partnerStatus;
   bool _isLoading = true;
 
@@ -30,16 +29,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadPartnerData();
   }
 
-  Future<void> _loadPartnerData() async {
-    final user = await StorageService.getUser();
-    final name = await StorageService.getPartnerName();
-    final email = await StorageService.getPartnerEmail();
-    final status = await StorageService.getPartnerStatus();
+  void _loadPartnerData() {
+    // All StorageService getters are now synchronous after StorageService.init()
+    final user = StorageService.getUser();
+    final status = StorageService.getPartnerStatus();
 
     setState(() {
-      _partnerName = name ?? user?['name'] ?? 'Partner';
-      _partnerEmail = email ?? user?['email'] ?? 'Not available';
-      _partnerPhone = user?['phone'] ?? '';
+      _partnerName = user?['name']?.toString() ?? 'Partner';
+      _partnerEmail = user?['email']?.toString() ?? 'Not available';
       _partnerStatus = status ?? 'approved';
       _isLoading = false;
     });
@@ -196,6 +193,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       fontWeight: FontWeight.bold,
                       letterSpacing: -0.015 * 22,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 4),
                   // Email
@@ -205,6 +205,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       fontSize: 16,
                       color: Color(0xFF617589),
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
                   // Status Badge
@@ -353,7 +356,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: const OrdersBottomNavBar(selectedIndex: 4),
     );
   }
 

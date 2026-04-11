@@ -1,16 +1,19 @@
 // lib/features/auth/providers/auth_provider.dart
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/services/location_service.dart';
-import '../../../core/services/permission_helper.dart';
+import '../../../core/services/session_service.dart';
 import '../../../config/api_endpoints.dart';
+import '../../../core/services/fcm_service.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated, pending, rejected }
 
 class AuthProvider extends ChangeNotifier {
+  // ApiService is a singleton — just call the factory constructor.
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
 
@@ -25,24 +28,27 @@ class AuthProvider extends ChangeNotifier {
 
   bool get isLocationTracking => _locationService.isTracking;
 
-  BuildContext? _context;
+  // ─── Session force-logout listener ────────────────────────────────────────
+  StreamSubscription<void>? _forceLogoutSub;
 
-  void setContext(BuildContext context) {
-    _context = context;
-  }
+  // ─── INITIALIZE ───────────────────────────────────────────────────────────
 
   Future<void> initialize() async {
-    final token = await StorageService.getToken();
-    final status = await StorageService.getPartnerStatus();
-    _partnerId = await StorageService.getPartnerId();
+    // Single batched async call — token is in secure storage (async),
+    // status and partnerId are in cached SharedPreferences (sync inside).
+    final auth = await StorageService.getAuthData();
 
-    if (token == null || status == null) {
+    _partnerId = auth.partnerId;
+
+    if (auth.token == null || auth.status == null) {
       _status = AuthStatus.unauthenticated;
     } else {
-      switch (status) {
+      switch (auth.status) {
         case 'approved':
           _status = AuthStatus.authenticated;
-          await _startLocationTracking();
+          // Start location silently — no UI needed here; tracking starts
+          // in the background. Permission dialogs are handled in OtpScreen.
+          _startLocationTracking();
           break;
         case 'pending':
           _status = AuthStatus.pending;
@@ -55,18 +61,24 @@ class AuthProvider extends ChangeNotifier {
       }
     }
 
+    // Listen for global 401 force-logout signal from ApiService interceptor.
+    _forceLogoutSub?.cancel();
+    _forceLogoutSub = SessionService.instance.forceLogout.listen((_) async {
+      debugPrint('🔐 Force logout triggered by 401');
+      await logout();
+    });
+
     notifyListeners();
   }
 
-  // ✅ CHECK ACTUAL STATUS FROM BACKEND (NO TOKEN REQUIRED)
+  // ─── CHECK ACCOUNT STATUS ─────────────────────────────────────────────────
+
   Future<void> checkAccountStatus() async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      if (_partnerId == null) {
-        _partnerId = await StorageService.getPartnerId();
-      }
+      _partnerId ??= StorageService.getPartnerId();
 
       if (_partnerId == null) {
         debugPrint('❌ No partnerId found');
@@ -75,23 +87,19 @@ class AuthProvider extends ChangeNotifier {
         return;
       }
 
-      debugPrint('🔄 Checking account status for partner: $_partnerId');
+      debugPrint('🔄 Checking account status for: $_partnerId');
 
-      // ✅ Use NEW check-status endpoint (POST with partnerId, NO TOKEN)
       final response = await _apiService.dio.post(
         ApiEndpoints.checkStatus,
         data: {'partnerId': _partnerId},
       );
 
-      debugPrint('✅ Check status response: ${response.data}');
-
       final partner = response.data['partner'];
       if (partner != null) {
         final backendStatus = partner['status'] as String;
-        
         debugPrint('✅ Backend status: $backendStatus');
         await StorageService.savePartnerStatus(backendStatus);
-        
+
         switch (backendStatus) {
           case 'approved':
             _status = AuthStatus.authenticated;
@@ -108,17 +116,14 @@ class AuthProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('❌ Error checking account status: $e');
-      if (e is DioException) {
-        debugPrint('❌ DioException type: ${e.type}');
-        debugPrint('❌ Response: ${e.response?.data}');
-      }
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // 🔐 LOGIN (REQUEST OTP)
+  // ─── LOGIN (REQUEST OTP) ──────────────────────────────────────────────────
+
   Future<String?> login({
     required String email,
     required String password,
@@ -138,43 +143,30 @@ class AuthProvider extends ChangeNotifier {
 
       _partnerId = response.data['partnerId'];
       await StorageService.savePartnerId(_partnerId!);
-      
-      // ✅ Check status from backend response
+
       final partnerStatus = response.data['status'] as String?;
-      
       if (partnerStatus != null) {
-        debugPrint('📊 Partner status: $partnerStatus');
         await StorageService.savePartnerStatus(partnerStatus);
-        
         if (partnerStatus == 'pending') {
           _status = AuthStatus.pending;
           notifyListeners();
-          return 'PENDING'; // ✅ Return marker, not full message
+          return 'PENDING';
         } else if (partnerStatus == 'rejected') {
           _status = AuthStatus.rejected;
           notifyListeners();
-          return 'REJECTED'; // ✅ Return marker, not full message
+          return 'REJECTED';
         }
       }
-      
-      // Success for approved users
+
       debugPrint('✅ Login successful, OTP sent');
       return null;
-      
     } catch (e) {
       debugPrint('❌ Login Error: $e');
       if (e is DioException) {
         final statusCode = e.response?.statusCode;
         final errorMessage = e.response?.data['error'] as String?;
-        
-        debugPrint('❌ Status code: $statusCode');
-        debugPrint('❌ Error message: $errorMessage');
-        
-        if (statusCode == 404) {
-          return 'Account not found';
-        } else if (statusCode == 403) {
-          return errorMessage ?? 'Invalid password';
-        }
+        if (statusCode == 404) return 'Account not found';
+        if (statusCode == 403) return errorMessage ?? 'Invalid password';
       }
       return 'Login failed. Please try again.';
     } finally {
@@ -183,7 +175,43 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // 🔑 VERIFY OTP (FINAL LOGIN)
+  // ─── RESEND OTP ───────────────────────────────────────────────────────────
+
+  /// Re-triggers an OTP send using the stored partnerId.
+  /// Returns null on success, or an error string on failure.
+  Future<String?> resendOtp() async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      if (_partnerId == null) {
+        return 'Session expired. Please login again.';
+      }
+
+      debugPrint('🔄 Resending OTP for partner: $_partnerId');
+
+      // Re-call the same OTP endpoint the backend uses to dispatch a new OTP.
+      await _apiService.dio.post(
+        ApiEndpoints.loginOtp,
+        data: {'partnerId': _partnerId},
+      );
+
+      debugPrint('✅ OTP resent successfully');
+      return null;
+    } catch (e) {
+      debugPrint('❌ Resend OTP error: $e');
+      if (e is DioException) {
+        return e.response?.data['error'] ?? 'Failed to resend OTP';
+      }
+      return 'Failed to resend OTP. Try again.';
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // ─── VERIFY OTP ───────────────────────────────────────────────────────────
+
   Future<String?> verifyOtp({required String otp}) async {
     try {
       _isLoading = true;
@@ -191,32 +219,28 @@ class AuthProvider extends ChangeNotifier {
 
       final response = await _apiService.dio.post(
         ApiEndpoints.verifyOtp,
-        data: {
-          'partnerId': _partnerId,
-          'otp': otp,
-        },
+        data: {'partnerId': _partnerId, 'otp': otp},
       );
 
       final token = response.data['token'];
       final partner = response.data['partner'];
 
-      if (token == null) {
-        return 'No token received from server';
-      }
+      if (token == null) return 'No token received from server';
 
       await StorageService.saveToken(token);
-      
+
       if (partner != null) {
         final backendStatus = partner['status'] as String;
         await StorageService.savePartnerStatus(backendStatus);
         await StorageService.saveUser(partner);
-        
-        debugPrint('✅ User data saved: $partner');
-        
+
         switch (backendStatus) {
           case 'approved':
             _status = AuthStatus.authenticated;
-            await _startLocationTracking();
+            _startLocationTracking();
+            // Register FCM token now that we have an authenticated partner.
+            // unawaited so it doesn't block the login completion.
+            unawaited(FCMService.instance.init());
             break;
           case 'pending':
             _status = AuthStatus.pending;
@@ -227,21 +251,19 @@ class AuthProvider extends ChangeNotifier {
           default:
             _status = AuthStatus.unauthenticated;
         }
-      } else {
-        debugPrint('⚠️ No partner data in response');
-        await StorageService.savePartnerStatus('approved');
-        _status = AuthStatus.authenticated;
-        await _startLocationTracking();
-      }
+        } else {
+            await StorageService.savePartnerStatus('approved');
+            _status = AuthStatus.authenticated;
+            _startLocationTracking();
+            unawaited(FCMService.instance.init());
+          }
 
       notifyListeners();
       return null;
-      
     } catch (e) {
       debugPrint('❌ OTP Verification Error: $e');
       if (e is DioException) {
-        final errorMessage = e.response?.data['error'] as String?;
-        return errorMessage ?? 'Invalid or expired OTP';
+        return e.response?.data['error'] ?? 'Invalid or expired OTP';
       }
       return 'Invalid or expired OTP';
     } finally {
@@ -250,13 +272,21 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // ─── LOGOUT ───────────────────────────────────────────────────────────────
+
   Future<void> logout() async {
+    final sessionToken = await StorageService.getToken();
     await _stopLocationTracking();
-    await StorageService.clearAll();
+    // Clear FCM token from backend so no more push notifications are sent
+    // to this device after logout. Fire-and-forget — non-blocking.
+    await FCMService.instance.clearToken(sessionToken: sessionToken ?? '');
+    await StorageService.clearAuthKeys();
     _status = AuthStatus.unauthenticated;
     _partnerId = null;
     notifyListeners();
   }
+
+  // ─── REGISTER ─────────────────────────────────────────────────────────────
 
   Future<String?> register({
     required String name,
@@ -281,13 +311,11 @@ class AuthProvider extends ChangeNotifier {
       );
 
       _partnerId = response.data['partnerId'];
-
       await StorageService.savePartnerId(_partnerId!);
       await StorageService.savePartnerStatus('pending');
 
       _status = AuthStatus.pending;
       notifyListeners();
-
       return null;
     } catch (e) {
       debugPrint('❌ Registration Error: $e');
@@ -298,55 +326,21 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _startLocationTracking() async {
-    try {
-      debugPrint('🎯 Attempting to start location tracking...');
+  // ─── LOCATION TRACKING ────────────────────────────────────────────────────
+  // These are fire-and-forget — permission dialogs must be shown by the UI
+  // layer (OtpScreen / SplashScreen) before tracking is started.
 
-      if (!await _locationService.isGpsEnabled()) {
-        debugPrint('⚠️ GPS is disabled');
-        if (_context != null && _context!.mounted) {
-          final shouldOpen = await PermissionHelper.showGpsDisabledDialog(_context!);
-          if (shouldOpen) {
-            await _locationService.openLocationSettings();
-          }
-        }
-        return;
-      }
-
-      if (!await _locationService.hasAlwaysPermission()) {
-        debugPrint('⚠️ Need "Always Allow" permission');
-        
-        if (_context != null && _context!.mounted) {
-          final userAgreed = await PermissionHelper.showLocationPermissionDialog(_context!);
-          if (!userAgreed) {
-            debugPrint('❌ User declined permission request');
-            return;
-          }
-        }
-
-        final granted = await _locationService.requestAlwaysPermission();
-        
-        if (!granted) {
-          debugPrint('❌ Permission denied');
-          if (_context != null && _context!.mounted) {
-            await PermissionHelper.showPermissionDeniedDialog(_context!);
-          }
-          return;
-        }
-      }
-
-      final started = await _locationService.startTracking();
-      
-      if (started) {
-        debugPrint('✅ Location tracking started successfully');
-      } else {
-        debugPrint('❌ Failed to start location tracking');
-      }
-      
+  void _startLocationTracking() {
+    _locationService.startTracking().then((started) {
+      debugPrint(
+        started
+            ? '✅ Location tracking started'
+            : '❌ Location tracking failed to start',
+      );
       notifyListeners();
-    } catch (e) {
+    }).catchError((e) {
       debugPrint('❌ Error starting location tracking: $e');
-    }
+    });
   }
 
   Future<void> _stopLocationTracking() async {
@@ -363,7 +357,15 @@ class AuthProvider extends ChangeNotifier {
     if (_locationService.isTracking) {
       await _stopLocationTracking();
     } else {
-      await _startLocationTracking();
+      _startLocationTracking();
     }
+  }
+
+  // ─── DISPOSE ──────────────────────────────────────────────────────────────
+
+  @override
+  void dispose() {
+    _forceLogoutSub?.cancel();
+    super.dispose();
   }
 }

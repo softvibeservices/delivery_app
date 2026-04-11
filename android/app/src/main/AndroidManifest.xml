@@ -1,22 +1,28 @@
+<!-- android/app/src/main/AndroidManifest.xml -->
+<!-- UPDATED for Group 7: added POST_NOTIFICATIONS permission for Android 13+ -->
+
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    
-    <!-- ✅ Location Permissions -->
+
+    <!-- Location Permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    
-    <!-- ✅ Internet & Network -->
+
+    <!-- Internet & Network -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    
-    <!-- ✅ Wake Lock (for background tracking) -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    
-    <!-- ❌ REMOVED: Foreground Service Permissions (not needed for silent mode) -->
-    <!-- ❌ REMOVED: POST_NOTIFICATIONS (no notifications) -->
 
-    <!-- Phone Call Permission -->
+    <!-- Wake Lock (for background tracking) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- ✅ NEW: Push notification permission (Android 13 / API 33+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- ✅ NEW: Required to receive FCM data messages in background -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Phone / Maps intent queries -->
     <queries>
         <intent>
             <action android:name="android.intent.action.DIAL" />
@@ -35,13 +41,22 @@
         android:label="delivery_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        
-        <!-- ✅ Background Service (SILENT MODE - no foreground service type) -->
+
+        <!-- Background location service (silent mode) -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:exported="false"
             tools:replace="android:exported" />
-        
+
+        <!-- ✅ NEW: FCM background message handler -->
+        <service
+            android:name="com.google.firebase.messaging.FirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -53,18 +68,17 @@
             android:windowSoftInputMode="adjustResize"
             android:showWhenLocked="true"
             android:turnScreenOn="true">
-            
+
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme"
-            />
-            
+                android:resource="@style/NormalTheme" />
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

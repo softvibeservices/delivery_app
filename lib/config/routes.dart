@@ -7,17 +7,16 @@ import '../features/auth/screens/register_screen.dart';
 import '../features/auth/screens/pending_screen.dart';
 import '../features/auth/screens/login_screen.dart';
 import '../features/auth/screens/otp_screen.dart';
-import '../features/orders/screens/pending_orders_screen.dart';
 import '../features/orders/screens/order_details_screen.dart';
 import '../features/orders/models/order_model.dart';
-import '../features/sticky_notes/screens/sticky_notes_list_screen.dart';
-import '../features/go_to/screens/go_to_screen.dart';
-import '../features/profile/screens/profile_screen.dart'; // ✅ NEW
+import '../features/main_shell.dart';
 
 class AppRoutes {
+  AppRoutes._();
+
   static const String initial = splash;
 
-  // Auth Screens
+  // ── Auth ──────────────────────────────────────────────────────────────────
   static const String splash = '/splash';
   static const String welcome = '/welcome';
   static const String login = '/login';
@@ -25,82 +24,53 @@ class AppRoutes {
   static const String otp = '/otp';
   static const String pending = '/pending';
 
-  // Main Screens
-  static const String orders = '/orders';
+  // ── Main shell (all tabs live inside here) ────────────────────────────────
+  static const String main = '/main';
+
+  // ── Deep-link into a specific order detail (pushed on top of shell) ───────
   static const String orderDetails = '/order-details';
-  static const String deliveredOrders = '/delivered-orders';
-  static const String stickyNote = '/sticky-note';
-  static const String goTo = '/go-to';
-  static const String profile = '/profile';
+
+  // 'orders' kept as an alias that redirects to the shell so any existing
+  // push calls (e.g. in auth flow) still work without needing an update.
+  static const String orders = '/main';
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
-      // Auth Routes
+      // Auth
       case splash:
-        return MaterialPageRoute(builder: (_) => const SplashScreen());
+        return _route(const SplashScreen());
       case welcome:
-        return MaterialPageRoute(builder: (_) => const HomeScreen());
+        return _route(const HomeScreen());
       case login:
-        return MaterialPageRoute(builder: (_) => const LoginScreen());
+        return _route(const LoginScreen());
       case otp:
-        return MaterialPageRoute(builder: (_) => const OtpScreen());
+        return _route(const OtpScreen());
       case register:
-        return MaterialPageRoute(builder: (_) => const RegisterScreen());
+        return _route(const RegisterScreen());
       case pending:
-        return MaterialPageRoute(builder: (_) => const PendingApprovalScreen());
+        return _route(const PendingApprovalScreen());
 
-      // Order Routes
-      case orders:
-        return MaterialPageRoute(builder: (_) => const PendingOrdersScreen());
+      // Main app shell
+      case main:
+        return _route(const MainShell());
+
+      // Order details is pushed on top of the shell, not inside it.
       case orderDetails:
         final order = settings.arguments as OrderModel;
-        return MaterialPageRoute(
-          builder: (_) => OrderDetailsScreen(order: order),
-        );
-
-      // Feature Routes
-      case stickyNote:
-        return MaterialPageRoute(builder: (_) => const StickyNotesListScreen());
-      case goTo:
-        return MaterialPageRoute(builder: (_) => const GoToScreen());
-      case profile:
-        return MaterialPageRoute(builder: (_) => const ProfileScreen()); // ✅ NEW
-
-      // Placeholder Routes
-      case deliveredOrders:
-        return MaterialPageRoute(
-          builder: (_) => _placeholder('DELIVERED ORDERS'),
-        );
+        return _route(OrderDetailsScreen(order: order));
 
       default:
-        return MaterialPageRoute(
-          builder: (_) => Scaffold(
-            body: Center(child: Text('Route ${settings.name} not found')),
+        return _route(
+          Scaffold(
+            body: Center(
+              child: Text('Route "${settings.name}" not found'),
+            ),
           ),
         );
     }
   }
 
-  static final Map<String, WidgetBuilder> routes = {
-    splash: (_) => const SplashScreen(),
-    welcome: (_) => const HomeScreen(),
-    login: (_) => const LoginScreen(),
-    otp: (_) => const OtpScreen(),
-    register: (_) => const RegisterScreen(),
-    pending: (_) => const PendingApprovalScreen(),
-    orders: (_) => const PendingOrdersScreen(),
-  };
-
-  static Widget _placeholder(String title) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Text(
-          '$title SCREEN\n(Coming next)',
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
+  static MaterialPageRoute<dynamic> _route(Widget page) {
+    return MaterialPageRoute(builder: (_) => page);
   }
 }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "308438924425",
+    "project_id": "ice-delivery-partner",
+    "storage_bucket": "ice-delivery-partner.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:308438924425:android:aba8eeb95ea29ab4b5da58",
+        "android_client_info": {
+          "package_name": "com.example.delivery_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyADwDSAqY_gfKKsrAhSyWZGNVe3GSIHO_I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

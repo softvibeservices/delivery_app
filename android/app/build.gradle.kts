@@ -1,7 +1,12 @@
+// android/app/build.gradle.kts
+// UPDATED for Group 7: apply google-services plugin for Firebase
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
+    // ✅ NEW: Must be after com.android.application
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -10,7 +15,6 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // ✅ ENABLE DESUGARING
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
@@ -22,12 +26,10 @@ android {
 
     defaultConfig {
         applicationId = "com.example.delivery_app"
-        minSdk = flutter.minSdkVersion  // ✅ MUST BE 21 OR HIGHER
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        
-        // ✅ ENABLE MULTIDEX
         multiDexEnabled = true
     }
 
@@ -43,6 +45,5 @@ flutter {
 }
 
 dependencies {
-    // ✅ CORE LIBRARY DESUGARING (Kotlin DSL syntax)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

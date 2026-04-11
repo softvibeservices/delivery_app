@@ -1,13 +1,12 @@
 // lib/features/sticky_notes/screens/sticky_notes_list_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/sticky_notes_provider.dart';
 import '../models/sticky_note_model.dart';
-import '../../orders/widgets/bottom_nav_bar.dart';
 import 'sticky_note_form_screen.dart';
 import 'sticky_note_detail_screen.dart';
+import '../../../core/utils/date_utils.dart';
 
 class StickyNotesListScreen extends StatefulWidget {
   const StickyNotesListScreen({super.key});
@@ -189,7 +188,6 @@ class _StickyNotesListScreenState extends State<StickyNotesListScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-      bottomNavigationBar: const OrdersBottomNavBar(selectedIndex: 2),
     );
   }
 
@@ -524,6 +522,8 @@ class _StickyNotesListScreenState extends State<StickyNotesListScreen> {
                               fontWeight: FontWeight.w600,
                               color: Color(0xFF111418),
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           Text(
                             note.customerName,
@@ -531,6 +531,8 @@ class _StickyNotesListScreenState extends State<StickyNotesListScreen> {
                               fontSize: 12,
                               color: Color(0xFF617589),
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -590,7 +592,7 @@ class _StickyNotesListScreenState extends State<StickyNotesListScreen> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      note.getRelativeTime(),
+                      AppDateUtils.getRelativeTime(note.createdAt),
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,

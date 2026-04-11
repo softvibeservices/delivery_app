@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/sticky_note_model.dart';
 import 'sticky_note_form_screen.dart';
+import '../../../core/utils/date_utils.dart';
 
 class StickyNoteDetailScreen extends StatelessWidget {
   final StickyNoteModel note;
@@ -14,6 +15,7 @@ class StickyNoteDetailScreen extends StatelessWidget {
   });
 
   void _navigateToEdit(BuildContext context) async {
+    final nav = Navigator.of(context);
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -24,9 +26,9 @@ class StickyNoteDetailScreen extends StatelessWidget {
       ),
     );
 
-    if (result == true && context.mounted) {
-      Navigator.pop(context, true);
-    }
+    if (result == true) {
+        nav.pop(true);
+      }
   }
 
   @override
@@ -108,6 +110,8 @@ class StickyNoteDetailScreen extends StatelessWidget {
                                 fontWeight: FontWeight.bold,
                                 letterSpacing: -0.5,
                               ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                             const SizedBox(height: 4),
                             Text(
@@ -127,7 +131,7 @@ class StickyNoteDetailScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   _infoRow(
                     Icons.access_time,
-                    'Created ${note.getRelativeTime()}',
+                    'Created ${AppDateUtils.getRelativeTime(note.createdAt)}',
                   ),
                   const SizedBox(height: 8),
                   _infoRow(
@@ -350,6 +354,8 @@ class StickyNoteDetailScreen extends StatelessWidget {
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],

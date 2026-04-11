@@ -40,10 +40,10 @@ class _SecurityPasswordScreenState extends State<SecurityPasswordScreen> {
     super.dispose();
   }
 
-  Future<void> _loadPartnerId() async {
-    final id = await StorageService.getPartnerId();
-    setState(() => _partnerId = id);
-  }
+  void _loadPartnerId() {
+     // getPartnerId() is now synchronous after StorageService.init()
+     setState(() => _partnerId = StorageService.getPartnerId());
+   }
 
   Future<void> _requestOtp() async {
     if (_partnerId == null) {
@@ -59,8 +59,7 @@ class _SecurityPasswordScreenState extends State<SecurityPasswordScreen> {
     try {
       setState(() => _isRequestingOtp = true);
 
-      final apiService = ApiService();
-      final response = await apiService.dio.post(
+      final response = await ApiService().dio.post(
         ApiEndpoints.requestPasswordOtp,
         data: {'partnerId': _partnerId},
       );
@@ -107,8 +106,7 @@ class _SecurityPasswordScreenState extends State<SecurityPasswordScreen> {
     try {
       setState(() => _isChangingPassword = true);
 
-      final apiService = ApiService();
-      final response = await apiService.dio.patch(
+      final response = await ApiService().dio.patch(
         ApiEndpoints.changePassword,
         data: {
           'partnerId': _partnerId,

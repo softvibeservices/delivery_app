@@ -42,8 +42,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
     try {
       setState(() => _isLoading = true);
 
-      final apiService = ApiService();
-      final response = await apiService.dio.get(ApiEndpoints.getProfile);
+      final response = await ApiService().dio.get(ApiEndpoints.getProfile);
 
       if (response.statusCode == 200) {
         final partner = response.data['partner'];
@@ -76,8 +75,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
     try {
       setState(() => _isSaving = true);
 
-      final apiService = ApiService();
-      final response = await apiService.dio.patch(
+      final response = await ApiService().dio.patch(
         ApiEndpoints.updateProfile,
         data: {
           'name': _nameController.text.trim(),
@@ -87,13 +85,13 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
 
       if (response.statusCode == 200 && mounted) {
         // Update local storage
-        final user = await StorageService.getUser();
+        final user = StorageService.getUser();
         if (user != null) {
           user['name'] = _nameController.text.trim();
           user['phone'] = _phoneController.text.trim();
           await StorageService.saveUser(user);
         }
-
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Profile updated successfully'),

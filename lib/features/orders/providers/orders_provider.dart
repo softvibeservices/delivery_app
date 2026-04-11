@@ -5,10 +5,14 @@ import 'package:dio/dio.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../config/api_endpoints.dart';
+import '../../../core/utils/dio_error_handler.dart';
 import '../models/order_model.dart';
 
 class OrdersProvider extends ChangeNotifier {
-  final ApiService _apiService = ApiService();
+  final ApiService _apiService;
+
+  // ApiService is injected so the whole app shares one Dio instance.
+  OrdersProvider(this._apiService);
 
   List<OrderModel> _orders = [];
   List<OrderModel> get orders => _orders;
@@ -22,7 +26,8 @@ class OrdersProvider extends ChangeNotifier {
   DateTime? _lastUpdated;
   DateTime? get lastUpdated => _lastUpdated;
 
-  /// Fetch pending orders from the API
+  // ─── FETCH ────────────────────────────────────────────────────────────────
+
   Future<void> fetchOrders() async {
     try {
       _isLoading = true;
@@ -30,8 +35,8 @@ class OrdersProvider extends ChangeNotifier {
       notifyListeners();
 
       debugPrint('📱 Fetching orders...');
-      
-      final partnerId = await StorageService.getPartnerId();
+
+      final partnerId = StorageService.getPartnerId();
       debugPrint('🔑 Partner ID: $partnerId');
 
       final response = await _apiService.dio.get(
@@ -43,24 +48,20 @@ class OrdersProvider extends ChangeNotifier {
       );
 
       debugPrint('📦 Response status: ${response.statusCode}');
-      debugPrint('📦 Response data: ${response.data}');
 
       if (response.statusCode == 200) {
-        // Handle both possible response formats
-        final List<dynamic> data = response.data is List 
-            ? response.data 
+        final List<dynamic> data = response.data is List
+            ? response.data
             : (response.data['orders'] ?? []);
-        
+
         _orders = data.map((json) => OrderModel.fromJson(json)).toList();
         _lastUpdated = DateTime.now();
         _error = null;
-        
-        debugPrint('✅ Successfully loaded ${_orders.length} orders');
+        debugPrint('✅ Loaded ${_orders.length} orders');
       }
     } on DioException catch (e) {
-      _error = _handleDioError(e);
+      _error = handleDioError(e, entityName: 'orders');
       debugPrint('❌ DioException: ${e.type} - ${e.message}');
-      debugPrint('❌ Error details: $_error');
       _orders = [];
     } catch (e) {
       _error = 'Unexpected error: ${e.toString()}';
@@ -72,7 +73,8 @@ class OrdersProvider extends ChangeNotifier {
     }
   }
 
-  /// Update order delivery status
+  // ─── UPDATE STATUS ────────────────────────────────────────────────────────
+
   Future<bool> updateOrderStatus({
     required String orderId,
     required String status,
@@ -90,21 +92,16 @@ class OrdersProvider extends ChangeNotifier {
         },
       );
 
-      debugPrint('📦 Update response: ${response.statusCode}');
-      debugPrint('📦 Update response data: ${response.data}');
-
       if (response.statusCode == 200) {
-        // Refresh the entire order list from server
         await fetchOrders();
         debugPrint('✅ Order updated and list refreshed');
         return true;
       }
-      
-      debugPrint('❌ Update failed with status: ${response.statusCode}');
+
+      debugPrint('❌ Update failed: ${response.statusCode}');
       return false;
     } on DioException catch (e) {
       debugPrint('❌ Update error: ${e.type} - ${e.message}');
-      debugPrint('❌ Response: ${e.response?.data}');
       return false;
     } catch (e) {
       debugPrint('❌ Unexpected update error: $e');
@@ -112,10 +109,10 @@ class OrdersProvider extends ChangeNotifier {
     }
   }
 
-  /// Filter orders by search query
+  // ─── FILTER ───────────────────────────────────────────────────────────────
+
   List<OrderModel> filterOrders(String query) {
     if (query.isEmpty) return _orders;
-
     final lowerQuery = query.toLowerCase();
     return _orders.where((order) {
       return order.customerName.toLowerCase().contains(lowerQuery) ||
@@ -125,33 +122,30 @@ class OrdersProvider extends ChangeNotifier {
     }).toList();
   }
 
-  /// Sort orders based on criteria
+  // ─── SORT ─────────────────────────────────────────────────────────────────
+
   List<OrderModel> sortOrders(List<OrderModel> orders, String sortBy) {
     final sorted = List<OrderModel>.from(orders);
-
     switch (sortBy) {
       case 'Pending':
-        // Filter only pending orders
-        return sorted.where((order) => order.deliveryStatus == 'Pending').toList();
-      
+        return sorted
+            .where((o) => o.deliveryStatus == 'Pending')
+            .toList();
       case 'On the Way':
-        // Filter only "On the Way" orders
-        return sorted.where((order) => order.deliveryStatus == 'On the Way').toList();
-      
+        return sorted
+            .where((o) => o.deliveryStatus == 'On the Way')
+            .toList();
       case 'Quantity':
-        // Sort by total items (highest first)
         sorted.sort((a, b) => b.totalItems.compareTo(a.totalItems));
         break;
-      
       default:
-        // 'All Orders' - keep original order (already sorted by creation time from API)
         break;
     }
-
     return sorted;
   }
 
-  /// Get a specific order by ID
+  // ─── GET BY ID ────────────────────────────────────────────────────────────
+
   OrderModel? getOrderById(String id) {
     try {
       return _orders.firstWhere((order) => order.id == id);
@@ -161,39 +155,8 @@ class OrdersProvider extends ChangeNotifier {
     }
   }
 
-  /// Clear error message
   void clearError() {
     _error = null;
     notifyListeners();
-  }
-
-  /// Handle Dio errors and return user-friendly messages
-  String _handleDioError(DioException e) {
-    switch (e.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-        return 'Connection timeout. Please check your internet connection.';
-      
-      case DioExceptionType.badResponse:
-        final statusCode = e.response?.statusCode;
-        if (statusCode == 401) {
-          return 'Unauthorized. Please login again.';
-        } else if (statusCode == 404) {
-          return 'No orders found.';
-        } else if (statusCode == 500) {
-          return 'Server error. Please try again later.';
-        }
-        return 'Failed to fetch orders (Error $statusCode)';
-      
-      case DioExceptionType.cancel:
-        return 'Request was cancelled.';
-      
-      case DioExceptionType.connectionError:
-        return 'No internet connection. Please check your network.';
-      
-      default:
-        return 'Failed to fetch orders. Please try again.';
-    }
   }
 }

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/go_to_provider.dart';
 import '../models/customer_model.dart';
-import '../../orders/widgets/bottom_nav_bar.dart';
 import 'customer_detail_screen.dart';
 
 class GoToScreen extends StatefulWidget {
@@ -36,13 +35,12 @@ class _GoToScreenState extends State<GoToScreen> {
     setState(() {});
   }
 
-  // ✅ FIXED: Simplified navigation with proper error handling
   Future<void> _viewCustomerDetails(CustomerModel customer) async {
     try {
-      // Add to recent searches
       await context.read<GoToProvider>().addToRecentSearches(customer);
-      
-      // Navigate to detail screen
+
+      if (!mounted) return;   // ADD THIS — guards context use after await
+
       await Navigator.push(
         context,
         MaterialPageRoute(
@@ -106,7 +104,6 @@ class _GoToScreenState extends State<GoToScreen> {
           );
         },
       ),
-      bottomNavigationBar: const OrdersBottomNavBar(selectedIndex: 3),
     );
   }
 

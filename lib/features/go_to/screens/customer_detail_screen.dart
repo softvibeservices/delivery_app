@@ -131,6 +131,8 @@ class CustomerDetailScreen extends StatelessWidget {
                             fontWeight: FontWeight.bold,
                             letterSpacing: -0.5,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -139,6 +141,8 @@ class CustomerDetailScreen extends StatelessWidget {
                             fontSize: 16,
                             color: Color(0xFF617589),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -249,6 +253,8 @@ class CustomerDetailScreen extends StatelessWidget {
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
                           ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         if (customer.location?.isValid ?? false) ...[
                           const SizedBox(height: 8),

@@ -1,18 +1,17 @@
 // lib/core/services/location_service.dart
-// UPDATED - Accurate tracking in foreground AND background
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:battery_plus/battery_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'storage_service.dart';
 import 'api_service.dart';
 import 'background_location_service.dart';
 import '../../config/api_endpoints.dart';
 
 class LocationService {
+  // ─── Singleton ────────────────────────────────────────────────────────────
   static final LocationService _instance = LocationService._internal();
   factory LocationService() => _instance;
   LocationService._internal();
@@ -20,14 +19,14 @@ class LocationService {
   Timer? _locationTimer;
   Position? _lastPosition;
   bool _isTracking = false;
-  int _updateInterval = 30; // ✅ Changed to 30 seconds (matches background)
+  final int _updateInterval = 30; // seconds
   final Battery _battery = Battery();
   final List<Map<String, dynamic>> _offlineQueue = [];
 
   bool get isTracking => _isTracking;
   int get queueSize => _offlineQueue.length;
 
-  // ========= PERMISSION METHODS =========
+  // ─── PERMISSIONS ──────────────────────────────────────────────────────────
 
   Future<bool> hasAlwaysPermission() async {
     final status = await Permission.locationAlways.status;
@@ -40,12 +39,12 @@ class LocationService {
 
     var status = await Permission.location.request();
     if (!status.isGranted) {
-      debugPrint('❌ While using permission denied');
+      debugPrint('❌ While-using permission denied');
       return false;
     }
 
     status = await Permission.locationAlways.request();
-    
+
     if (status.isGranted) {
       debugPrint('✅ ALWAYS permission granted');
       return true;
@@ -68,7 +67,7 @@ class LocationService {
     await Geolocator.openLocationSettings();
   }
 
-  // ========= TRACKING METHODS =========
+  // ─── TRACKING ─────────────────────────────────────────────────────────────
 
   Future<bool> startTracking() async {
     if (_isTracking) {
@@ -84,26 +83,22 @@ class LocationService {
     if (!await hasAlwaysPermission()) {
       debugPrint('❌ Need ALWAYS permission');
       final granted = await requestAlwaysPermission();
-      if (!granted) {
-        return false;
-      }
+      if (!granted) return false;
     }
 
     _isTracking = true;
-    debugPrint('🎯 Started location tracking (FOREGROUND + BACKGROUND)');
+    debugPrint('🎯 Started location tracking');
 
-    await _loadOfflineQueue();
+    _loadOfflineQueue();
 
-    // ✅ Start foreground updates (30 seconds - matches background)
     _locationTimer = Timer.periodic(
       Duration(seconds: _updateInterval),
       (_) => _updateLocation(),
     );
 
-    // ✅ Start SILENT background service
     await BackgroundLocationService.startTracking();
 
-    // Initial update
+    // Fire an immediate update.
     _updateLocation();
 
     return true;
@@ -114,26 +109,24 @@ class LocationService {
 
     _locationTimer?.cancel();
     _locationTimer = null;
-    
+
     await BackgroundLocationService.stopTracking();
-    
+
     _isTracking = false;
     _lastPosition = null;
-    
-    debugPrint('🛑 Stopped location tracking (FOREGROUND + BACKGROUND)');
+
+    debugPrint('🛑 Stopped location tracking');
   }
 
   Future<void> _updateLocation() async {
     try {
-      debugPrint('📍 [FOREGROUND] Getting location (HIGH ACCURACY)...');
+      debugPrint('📍 [FG] Getting location...');
 
-      // ✅ Use BEST accuracy (compatible with Geolocator 11.0.0)
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
         timeLimit: const Duration(seconds: 15),
       );
 
-      // Distance filter (skip if moved less than 5m)
       if (_lastPosition != null) {
         final distance = Geolocator.distanceBetween(
           _lastPosition!.latitude,
@@ -141,9 +134,10 @@ class LocationService {
           position.latitude,
           position.longitude,
         );
-
         if (distance < 5) {
-          debugPrint('⏭️ [FOREGROUND] Skipped: Moved only ${distance.toStringAsFixed(1)}m');
+          debugPrint(
+            '⏭️ [FG] Skipped: only ${distance.toStringAsFixed(1)}m moved',
+          );
           return;
         }
       }
@@ -161,129 +155,110 @@ class LocationService {
         'timestamp': position.timestamp.toIso8601String(),
       };
 
-      debugPrint('✅ [FOREGROUND] Location: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}');
-      debugPrint('📊 [FOREGROUND] Accuracy: ${position.accuracy.toStringAsFixed(1)}m | Battery: $batteryLevel%');
+      debugPrint(
+        '✅ [FG] ${position.latitude.toStringAsFixed(6)}, '
+        '${position.longitude.toStringAsFixed(6)} | '
+        'accuracy: ${position.accuracy.toStringAsFixed(1)}m | '
+        'battery: $batteryLevel%',
+      );
 
       await _sendLocationToBackend(locationData);
-
     } catch (e) {
-      debugPrint('❌ [FOREGROUND] Error updating location: $e');
+      debugPrint('❌ [FG] Error: $e');
     }
   }
 
-  Future<void> _sendLocationToBackend(Map<String, dynamic> locationData) async {
+  Future<void> _sendLocationToBackend(
+    Map<String, dynamic> locationData,
+  ) async {
     try {
-      final apiService = ApiService();
-      
-      final response = await apiService.dio.post(
+      // Use the shared ApiService singleton — interceptor adds auth header.
+      final response = await ApiService().dio.post(
         ApiEndpoints.updateLocation,
         data: locationData,
       );
 
       if (response.statusCode == 200) {
-        debugPrint('✅ [FOREGROUND] Location sent successfully');
-        
-        if (_offlineQueue.isNotEmpty) {
-          await _sendQueuedLocations();
-        }
+        debugPrint('✅ [FG] Location sent');
+        if (_offlineQueue.isNotEmpty) await _sendQueuedLocations();
       }
     } catch (e) {
-      debugPrint('❌ [FOREGROUND] Error sending location: $e');
-      await _addToOfflineQueue(locationData);
+      debugPrint('❌ [FG] Send failed, queuing: $e');
+      _addToOfflineQueue(locationData);
     }
   }
 
-  // ========= OFFLINE QUEUE =========
+  // ─── OFFLINE QUEUE (via StorageService — no direct SharedPreferences) ─────
 
-  Future<void> _addToOfflineQueue(Map<String, dynamic> locationData) async {
-    if (_offlineQueue.length >= 100) {
-      _offlineQueue.removeAt(0);
-    }
-    
+  void _addToOfflineQueue(Map<String, dynamic> locationData) {
+    if (_offlineQueue.length >= 100) _offlineQueue.removeAt(0);
     _offlineQueue.add(locationData);
-    await _saveOfflineQueue();
-    
-    debugPrint('📥 Location queued (${_offlineQueue.length} in queue)');
+    _saveOfflineQueue();
+    debugPrint('📥 Location queued (${_offlineQueue.length} pending)');
   }
 
   Future<void> _sendQueuedLocations() async {
     if (_offlineQueue.isEmpty) return;
-
     debugPrint('📤 Sending ${_offlineQueue.length} queued locations...');
 
-    final apiService = ApiService();
-    final locationsToSend = List<Map<String, dynamic>>.from(_offlineQueue);
+    final toSend = List<Map<String, dynamic>>.from(_offlineQueue);
 
-    for (final locationData in locationsToSend) {
+    for (final data in toSend) {
       try {
-        final response = await apiService.dio.post(
+        final response = await ApiService().dio.post(
           ApiEndpoints.updateLocation,
-          data: locationData,
+          data: data,
         );
-
         if (response.statusCode == 200) {
-          _offlineQueue.remove(locationData);
-          debugPrint('✅ Queued location sent');
+          _offlineQueue.remove(data);
         }
       } catch (e) {
-        debugPrint('❌ Failed to send queued location');
+        debugPrint('❌ Failed to send queued location, stopping flush');
         break;
       }
     }
 
-    await _saveOfflineQueue();
-    debugPrint('📊 Remaining in queue: ${_offlineQueue.length}');
+    _saveOfflineQueue();
+    debugPrint('📊 Queue remaining: ${_offlineQueue.length}');
   }
 
-  Future<void> _saveOfflineQueue() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final queueJson = jsonEncode(_offlineQueue);
-      await prefs.setString('location_queue', queueJson);
-    } catch (e) {
-      debugPrint('❌ Error saving queue: $e');
-    }
+  void _saveOfflineQueue() {
+    // StorageService.saveLocationQueue is async but we fire-and-forget here
+    // since queuing is best-effort and we don't want to block the timer.
+    StorageService.saveLocationQueue(_offlineQueue);
   }
 
-  Future<void> _loadOfflineQueue() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final queueJson = prefs.getString('location_queue');
-      
-      if (queueJson != null) {
-        final List<dynamic> decoded = jsonDecode(queueJson);
-        _offlineQueue.clear();
-        _offlineQueue.addAll(decoded.cast<Map<String, dynamic>>());
-        debugPrint('📥 Loaded ${_offlineQueue.length} queued locations');
-      }
-    } catch (e) {
-      debugPrint('❌ Error loading queue: $e');
-    }
+  void _loadOfflineQueue() {
+    // getLocationQueue() is synchronous after StorageService.init().
+    final saved = StorageService.getLocationQueue();
+    _offlineQueue
+      ..clear()
+      ..addAll(saved);
+    debugPrint('📥 Loaded ${_offlineQueue.length} queued locations');
   }
 
   Future<void> clearOfflineQueue() async {
     _offlineQueue.clear();
-    await _saveOfflineQueue();
+    await StorageService.clearLocationQueue();
     debugPrint('🗑️ Offline queue cleared');
   }
 
-  // ========= TEST METHODS =========
+  // ─── ONE-SHOT (for testing) ───────────────────────────────────────────────
 
   Future<Position?> getLocationOnce() async {
     try {
-      if (!await hasAlwaysPermission()) {
-        await requestAlwaysPermission();
-      }
+      if (!await hasAlwaysPermission()) await requestAlwaysPermission();
 
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
       );
-      
-      debugPrint('📍 Test location: ${position.latitude}, ${position.longitude}');
-      debugPrint('📊 Test accuracy: ${position.accuracy}m');
+      debugPrint(
+        '📍 Test: ${position.latitude}, ${position.longitude} '
+        '(±${position.accuracy.toStringAsFixed(0)}m)',
+      );
       return position;
     } catch (e) {
-      debugPrint('❌ Error: $e');
+      debugPrint('❌ getLocationOnce error: $e');
       return null;
     }
   }

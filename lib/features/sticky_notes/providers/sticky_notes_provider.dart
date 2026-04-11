@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../../../core/services/api_service.dart';
 import '../../../config/api_endpoints.dart';
+import '../../../core/utils/dio_error_handler.dart';
 import '../models/sticky_note_model.dart';
 
 class StickyNotesProvider extends ChangeNotifier {
-  final ApiService _apiService = ApiService();
+  final ApiService _apiService;
+
+  StickyNotesProvider(this._apiService);
 
   List<StickyNoteModel> _notes = [];
   List<StickyNoteModel> get notes => _notes;
@@ -21,7 +24,8 @@ class StickyNotesProvider extends ChangeNotifier {
   DateTime? _lastUpdated;
   DateTime? get lastUpdated => _lastUpdated;
 
-  /// Fetch all sticky notes for this delivery partner
+  // ─── FETCH ────────────────────────────────────────────────────────────────
+
   Future<void> fetchStickyNotes() async {
     try {
       _isLoading = true;
@@ -35,14 +39,11 @@ class StickyNotesProvider extends ChangeNotifier {
       debugPrint('📦 Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
-        final data = response.data;
-        final notesList = data['notes'] as List?;
-
+        final notesList = response.data['notes'] as List?;
         if (notesList != null) {
           _notes = notesList
               .map((json) => StickyNoteModel.fromJson(json))
               .toList();
-          
           _lastUpdated = DateTime.now();
           debugPrint('✅ Loaded ${_notes.length} sticky notes');
         } else {
@@ -51,7 +52,7 @@ class StickyNotesProvider extends ChangeNotifier {
         }
       }
     } on DioException catch (e) {
-      _error = _handleDioError(e);
+      _error = handleDioError(e, entityName: 'sticky notes');
       debugPrint('❌ DioException: ${e.type} - ${e.message}');
       _notes = [];
     } catch (e) {
@@ -64,7 +65,8 @@ class StickyNotesProvider extends ChangeNotifier {
     }
   }
 
-  /// Create a new sticky note
+  // ─── CREATE ───────────────────────────────────────────────────────────────
+
   Future<bool> createStickyNote(StickyNoteModel note) async {
     try {
       debugPrint('📝 Creating sticky note...');
@@ -79,14 +81,12 @@ class StickyNotesProvider extends ChangeNotifier {
         },
       );
 
-      debugPrint('📦 Create response: ${response.statusCode}');
-
       if (response.statusCode == 201) {
-        final createdNote = StickyNoteModel.fromJson(response.data);
-        _notes.insert(0, createdNote);
+        final created = StickyNoteModel.fromJson(response.data);
+        _notes.insert(0, created);
         _lastUpdated = DateTime.now();
         notifyListeners();
-        debugPrint('✅ Sticky note created successfully');
+        debugPrint('✅ Sticky note created');
         return true;
       }
 
@@ -100,7 +100,8 @@ class StickyNotesProvider extends ChangeNotifier {
     }
   }
 
-  /// Update an existing sticky note
+  // ─── UPDATE ───────────────────────────────────────────────────────────────
+
   Future<bool> updateStickyNote(String noteId, StickyNoteModel note) async {
     try {
       debugPrint('📝 Updating sticky note: $noteId');
@@ -116,17 +117,14 @@ class StickyNotesProvider extends ChangeNotifier {
         },
       );
 
-      debugPrint('📦 Update response: ${response.statusCode}');
-
       if (response.statusCode == 200) {
-        final updatedNote = StickyNoteModel.fromJson(response.data);
+        final updated = StickyNoteModel.fromJson(response.data);
         final index = _notes.indexWhere((n) => n.id == noteId);
-        
         if (index != -1) {
-          _notes[index] = updatedNote;
+          _notes[index] = updated;
           _lastUpdated = DateTime.now();
           notifyListeners();
-          debugPrint('✅ Sticky note updated successfully');
+          debugPrint('✅ Sticky note updated');
           return true;
         }
       }
@@ -141,7 +139,8 @@ class StickyNotesProvider extends ChangeNotifier {
     }
   }
 
-  /// Delete a sticky note
+  // ─── DELETE ───────────────────────────────────────────────────────────────
+
   Future<bool> deleteStickyNote(String noteId) async {
     try {
       debugPrint('📝 Deleting sticky note: $noteId');
@@ -151,13 +150,11 @@ class StickyNotesProvider extends ChangeNotifier {
         data: {'noteId': noteId},
       );
 
-      debugPrint('📦 Delete response: ${response.statusCode}');
-
       if (response.statusCode == 200) {
         _notes.removeWhere((n) => n.id == noteId);
         _lastUpdated = DateTime.now();
         notifyListeners();
-        debugPrint('✅ Sticky note deleted successfully');
+        debugPrint('✅ Sticky note deleted');
         return true;
       }
 
@@ -171,7 +168,8 @@ class StickyNotesProvider extends ChangeNotifier {
     }
   }
 
-  /// Get sticky note by ID
+  // ─── QUERY HELPERS ────────────────────────────────────────────────────────
+
   StickyNoteModel? getStickyNoteById(String id) {
     try {
       return _notes.firstWhere((note) => note.id == id);
@@ -181,20 +179,18 @@ class StickyNotesProvider extends ChangeNotifier {
     }
   }
 
-  /// Filter notes by search query
   List<StickyNoteModel> filterNotes(String query) {
     if (query.isEmpty) return _notes;
-
     final lowerQuery = query.toLowerCase();
     return _notes.where((note) {
       return note.customerName.toLowerCase().contains(lowerQuery) ||
           note.shopName.toLowerCase().contains(lowerQuery) ||
-          note.items.any((item) =>
-              item.productName.toLowerCase().contains(lowerQuery));
+          note.items.any(
+            (item) => item.productName.toLowerCase().contains(lowerQuery),
+          );
     }).toList();
   }
 
-  /// Group notes by time (Today, Yesterday, This Week, Older)
   Map<String, List<StickyNoteModel>> getGroupedNotes() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -219,8 +215,7 @@ class StickyNotesProvider extends ChangeNotifier {
         grouped['today']!.add(note);
       } else if (noteDate == yesterday) {
         grouped['yesterday']!.add(note);
-      } else if (noteDate.isAfter(thisWeekStart) ||
-          noteDate.isAtSameMomentAs(thisWeekStart)) {
+      } else if (!noteDate.isBefore(thisWeekStart)) {
         grouped['this_week']!.add(note);
       } else {
         grouped['older']!.add(note);
@@ -230,9 +225,10 @@ class StickyNotesProvider extends ChangeNotifier {
     return grouped;
   }
 
-  /// Get statistics
+  // ─── STATISTICS ───────────────────────────────────────────────────────────
+
   int get totalNotes => _notes.length;
-  
+
   int get todayNotes {
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
@@ -249,42 +245,13 @@ class StickyNotesProvider extends ChangeNotifier {
   int get thisWeekNotes {
     final now = DateTime.now();
     final thisWeekStart = now.subtract(Duration(days: now.weekday - 1));
-    return _notes.where((note) => note.createdAt.isAfter(thisWeekStart)).length;
+    return _notes
+        .where((note) => note.createdAt.isAfter(thisWeekStart))
+        .length;
   }
 
-  /// Clear error
   void clearError() {
     _error = null;
     notifyListeners();
-  }
-
-  /// Handle Dio errors
-  String _handleDioError(DioException e) {
-    switch (e.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-        return 'Connection timeout. Please check your internet.';
-
-      case DioExceptionType.badResponse:
-        final statusCode = e.response?.statusCode;
-        if (statusCode == 401) {
-          return 'Unauthorized. Please login again.';
-        } else if (statusCode == 404) {
-          return 'No sticky notes found.';
-        } else if (statusCode == 500) {
-          return 'Server error. Please try again later.';
-        }
-        return 'Failed to load sticky notes (Error $statusCode)';
-
-      case DioExceptionType.cancel:
-        return 'Request was cancelled.';
-
-      case DioExceptionType.connectionError:
-        return 'No internet connection.';
-
-      default:
-        return 'Failed to load sticky notes.';
-    }
   }
 }

@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/orders_provider.dart';
 import '../models/order_model.dart';
-import '../widgets/bottom_nav_bar.dart'; // ✅ ADDED
 import 'order_details_screen.dart';
 
 class PendingOrdersScreen extends StatefulWidget {
@@ -38,11 +37,7 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
     await context.read<OrdersProvider>().fetchOrders();
   }
 
-  void _filterOrders(String query) {
-    setState(() {
-      _searchQuery = query;
-    });
-  }
+  void _filterOrders(String query) => setState(() => _searchQuery = query);
 
   void _clearSearch() {
     _searchController.clear();
@@ -62,7 +57,7 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
       backgroundColor: const Color(0xFFF6F7F8),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white.withOpacity(0.9),
+        backgroundColor: Colors.white.withValues(alpha: 0.9),
         automaticallyImplyLeading: false,
         title: const Text(
           'Current Orders',
@@ -71,10 +66,10 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
         actions: [
           Consumer<OrdersProvider>(
             builder: (context, provider, _) {
-              final orderCount = provider.orders.length;
               return Container(
                 margin: const EdgeInsets.only(right: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: primary,
                   borderRadius: BorderRadius.circular(20),
@@ -82,19 +77,15 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
-                      Icons.shopping_bag_outlined,
-                      color: Colors.white,
-                      size: 18,
-                    ),
+                    const Icon(Icons.shopping_bag_outlined,
+                        color: Colors.white, size: 18),
                     const SizedBox(width: 6),
                     Text(
-                      '$orderCount',
+                      '${provider.orders.length}',
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
@@ -112,87 +103,58 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
             onRefresh: _refreshOrders,
             child: isEmpty && !provider.isLoading
                 ? _buildEmptyStateWithScroll()
-                : _buildOrdersList(provider, displayOrders, isEmpty, primary),
+                : _buildOrdersList(provider, displayOrders, primary),
           );
         },
-      ),
-      bottomNavigationBar: const OrdersBottomNavBar(
-        selectedIndex: 0, // ✅ 0 for Pending Orders
       ),
     );
   }
 
+  // ─── LAYOUTS ──────────────────────────────────────────────────────────────
+
   Widget _buildEmptyStateWithScroll() {
     return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Column(
-              children: [
-                _buildSearchAndFilters(),
-                SizedBox(height: constraints.maxHeight * 0.2),
-                _emptyState(),
-              ],
-            ),
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Column(
+            children: [
+              _buildSearchAndFilters(),
+              SizedBox(height: constraints.maxHeight * 0.2),
+              _emptyState(),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
   Widget _buildOrdersList(
     OrdersProvider provider,
     List<OrderModel> displayOrders,
-    bool isEmpty,
     Color primary,
   ) {
     return Column(
       children: [
         _buildSearchAndFilters(),
 
-        // Last Updated Time
         if (provider.lastUpdated != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'Last updated: ${DateFormat('hh:mm a').format(provider.lastUpdated!)}',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-          ),
-
-        // Error Message
-        if (provider.error != null)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.red.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.red.shade700),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      provider.error!,
-                      style: TextStyle(color: Colors.red.shade700),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => provider.clearError(),
-                  ),
-                ],
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Last updated: ${DateFormat('hh:mm a').format(provider.lastUpdated!)}',
+                style:
+                    TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ),
           ),
 
-        // Sort Chips
+        if (provider.error != null) _buildErrorBanner(provider),
+
+        // Sort chips
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: SizedBox(
@@ -200,55 +162,42 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _chip(
-                  'All Orders',
-                  active: _selectedSort == 'All Orders',
-                  color: Theme.of(context).primaryColor,
-                  onTap: () => setState(() => _selectedSort = 'All Orders'),
-                ),
-                _chip(
-                  'Pending',
-                  active: _selectedSort == 'Pending',
-                  color: Colors.orange,
-                  onTap: () => setState(() => _selectedSort = 'Pending'),
-                ),
-                _chip(
-                  'On the Way',
-                  active: _selectedSort == 'On the Way',
-                  color: Colors.blue,
-                  onTap: () => setState(() => _selectedSort = 'On the Way'),
-                ),
-                _chip(
-                  'Quantity',
-                  active: _selectedSort == 'Quantity',
-                  color: Colors.green,
-                  onTap: () => setState(() => _selectedSort = 'Quantity'),
-                ),
+                _chip('All Orders', active: _selectedSort == 'All Orders',
+                    color: Theme.of(context).primaryColor,
+                    onTap: () => setState(() => _selectedSort = 'All Orders')),
+                _chip('Pending', active: _selectedSort == 'Pending',
+                    color: Colors.orange,
+                    onTap: () => setState(() => _selectedSort = 'Pending')),
+                _chip('On the Way', active: _selectedSort == 'On the Way',
+                    color: Colors.blue,
+                    onTap: () => setState(() => _selectedSort = 'On the Way')),
+                _chip('Quantity', active: _selectedSort == 'Quantity',
+                    color: Colors.green,
+                    onTap: () => setState(() => _selectedSort = 'Quantity')),
               ],
             ),
           ),
         ),
 
-        // Orders List
         Expanded(
           child: provider.isLoading
               ? const Center(child: CircularProgressIndicator())
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   itemCount: displayOrders.length,
-                  itemBuilder: (context, index) {
-                    return _orderCard(
-                      displayOrders[index],
-                      primary,
-                      context,
-                      provider,
-                    );
-                  },
+                  itemBuilder: (context, index) => _orderCard(
+                    displayOrders[index],
+                    primary,
+                    context,
+                    provider,
+                  ),
                 ),
         ),
       ],
     );
   }
+
+  // ─── SEARCH & FILTERS ─────────────────────────────────────────────────────
 
   Widget _buildSearchAndFilters() {
     return Padding(
@@ -286,6 +235,216 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
     );
   }
 
+  Widget _buildErrorBanner(OrdersProvider provider) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red.shade700),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(provider.error!,
+                  style: TextStyle(color: Colors.red.shade700)),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: provider.clearError,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── ORDER CARD ───────────────────────────────────────────────────────────
+
+  Widget _orderCard(
+    OrderModel order,
+    Color primary,
+    BuildContext context,
+    OrdersProvider provider,
+  ) {
+    final status = order.deliveryStatus;
+    final orderDate = DateFormat('MMM dd, hh:mm a').format(order.createdAt);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header: customer name + status badge ──────────────────────
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Names column — Expanded so long names never overflow
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        order.customerName,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (order.shopName != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          order.shopName!,
+                          style: const TextStyle(
+                              color: Colors.grey, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _statusBadge(status),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // ── Contact ───────────────────────────────────────────────────
+            if (order.customerContact != null)
+              _infoRow(Icons.call, order.customerContact!),
+
+            const SizedBox(height: 8),
+
+            // ── Address ───────────────────────────────────────────────────
+            _infoRow(Icons.location_on, order.customerAddress),
+
+            const SizedBox(height: 10),
+
+            // ── Date + quantity badge ─────────────────────────────────────
+            Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    'Order: $orderDate',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${order.totalItems} items',
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue),
+                  ),
+                ),
+              ],
+            ),
+
+            const Divider(height: 24),
+
+            // ── Action buttons — Flexible so they never overflow ──────────
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              OrderDetailsScreen(order: order),
+                        ),
+                      );
+                      if (context.mounted) await provider.fetchOrders();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: primary,
+                      side: BorderSide(color: primary),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: const Text('View'),
+                  ),
+                ),
+                if (order.canUpdateStatus) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 3,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final success = await provider.updateOrderStatus(
+                          orderId: order.id,
+                          status: order.nextStatus,
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(success
+                                  ? 'Marked as ${order.nextStatus}'
+                                  : 'Failed to update order'),
+                              backgroundColor:
+                                  success ? Colors.green : Colors.red,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            status == 'Pending' ? primary : Colors.green,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      child: Text(
+                        order.nextStatus,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── SHARED WIDGETS ───────────────────────────────────────────────────────
+
   Widget _chip(
     String label, {
     bool active = false,
@@ -309,200 +468,30 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
     );
   }
 
-  Widget _orderCard(
-    OrderModel order,
-    Color primary,
-    BuildContext context,
-    OrdersProvider provider,
-  ) {
-    final status = order.deliveryStatus;
-    final totalQuantity = order.totalItems;
-    final orderDate = DateFormat('MMM dd, hh:mm a').format(order.createdAt);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      order.customerName,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (order.shopName != null)
-                      Text(
-                        order.shopName!,
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                  ],
-                ),
-                _statusBadge(status),
-              ],
-            ),
-
-            const SizedBox(height: 14),
-
-            if (order.customerContact != null)
-              _infoRow(Icons.call, order.customerContact!),
-
-            const SizedBox(height: 10),
-
-            _infoRow(Icons.location_on, order.customerAddress),
-
-            const SizedBox(height: 10),
-
-            Row(
-              children: [
-                Text(
-                  'Order: $orderDate',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '$totalQuantity items',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const Divider(height: 30),
-
-            SizedBox(
-              width: double.infinity,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  SizedBox(
-                    width: 120,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => OrderDetailsScreen(order: order),
-                          ),
-                        );
-                        if (context.mounted) {
-                          await provider.fetchOrders();
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: primary,
-                        side: BorderSide(color: primary),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: const Text('View'),
-                    ),
-                  ),
-                  if (order.canUpdateStatus)
-                    SizedBox(
-                      width: 150,
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          final success = await provider.updateOrderStatus(
-                            orderId: order.id,
-                            status: order.nextStatus,
-                          );
-
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  success
-                                      ? 'Order marked as ${order.nextStatus}'
-                                      : 'Failed to update order',
-                                ),
-                                backgroundColor: success ? Colors.green : Colors.red,
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: status == 'Pending' ? primary : Colors.green,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Text(
-                          order.nextStatus,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _statusBadge(String status) {
-    Color badgeColor;
-    Color textColor;
-
+    Color bg;
+    Color fg;
     switch (status) {
       case 'On the Way':
-        badgeColor = Colors.blue.shade50;
-        textColor = Colors.blue.shade700;
+        bg = Colors.blue.shade50;
+        fg = Colors.blue.shade700;
         break;
       case 'Delivered':
-        badgeColor = Colors.green.shade50;
-        textColor = Colors.green.shade700;
+        bg = Colors.green.shade50;
+        fg = Colors.green.shade700;
         break;
       default:
-        badgeColor = Colors.orange.shade50;
-        textColor = Colors.orange.shade700;
+        bg = Colors.orange.shade50;
+        fg = Colors.orange.shade700;
     }
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: badgeColor,
-        borderRadius: BorderRadius.circular(20),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration:
+          BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
       child: Text(
         status.toUpperCase(),
         style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
+            color: fg, fontWeight: FontWeight.bold, fontSize: 11),
       ),
     );
   }
@@ -511,13 +500,18 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
     return Row(
       children: [
         CircleAvatar(
-          radius: 16,
+          radius: 14,
           backgroundColor: Colors.grey.shade100,
-          child: Icon(icon, size: 18, color: Colors.grey),
+          child: Icon(icon, size: 16, color: Colors.grey),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
         Expanded(
-          child: Text(text, style: const TextStyle(color: Colors.grey)),
+          child: Text(
+            text,
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
     );
@@ -530,10 +524,9 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
         children: [
           Icon(Icons.inbox, size: 64, color: Colors.grey.shade300),
           const SizedBox(height: 16),
-          const Text(
-            'No pending orders',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
+          const Text('No pending orders',
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(
             _searchQuery.isNotEmpty

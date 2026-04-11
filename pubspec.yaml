@@ -10,19 +10,35 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  # ── Networking ──────────────────────────────────────────────────────────────
   dio: ^5.4.0
-  flutter_secure_storage: ^9.0.0
+
+  # ── State management ────────────────────────────────────────────────────────
   provider: ^6.1.1
-  intl: ^0.18.1
-  url_launcher: ^6.3.1
+
+  # ── Storage ─────────────────────────────────────────────────────────────────
   shared_preferences: ^2.2.2
+  flutter_secure_storage: ^9.0.0
+
+  # ── Firebase (Group 7) ──────────────────────────────────────────────────────
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+
+  # ── Notifications ───────────────────────────────────────────────────────────
+  flutter_local_notifications: ^17.0.0
+
+  # ── Location & background ───────────────────────────────────────────────────
   geolocator: ^11.0.0
   permission_handler: ^11.2.0
   battery_plus: ^5.0.2
-  cupertino_icons: ^1.0.8
   flutter_background_service: ^5.0.5
-  flutter_local_notifications: ^17.0.0
-  flutter_native_splash: ^2.3.10  # ✅ MOVED HERE from dev_dependencies
+
+  # ── Utilities ───────────────────────────────────────────────────────────────
+  intl: ^0.18.1
+  url_launcher: ^6.3.1
+  cupertino_icons: ^1.0.8
+  flutter_native_splash: ^2.3.10
 
 dev_dependencies:
   flutter_test:
@@ -31,51 +47,22 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
-  # Add assets folder
+
   assets:
     - assets/
 
-# ============================================
-# FLUTTER NATIVE SPLASH CONFIGURATION
-# ============================================
+# ── Flutter Native Splash ──────────────────────────────────────────────────────
 flutter_native_splash:
-  # Background color matching your Flutter splash gradient
-  # Using the top color of your RadialGradient (#E0F2FE)
   color: "#E0F2FE"
-  
-  # Your splash logo image
-  # IMPORTANT: Create this image file at assets/splash_logo.png
-  # Recommended size: 512x512 or 1024x1024 pixels
-  # Must be PNG with transparent background
   image: assets/splash_logo.png
-  
-  # Branding image (optional - shows at bottom)
-  # branding: assets/splash_branding.png
-  
-  # Android specific settings
   android: true
   android_gravity: center
-  
-  # Android 12+ specific splash screen
   android_12:
-    # Background color for Android 12+
     color: "#E0F2FE"
-    # Logo for Android 12+
     image: assets/splash_logo.png
-    # Icon background color (optional)
-    # icon_background_color: "#FFFFFF"
-  
-  # iOS specific settings
   ios: true
   ios_content_mode: center
-  
-  # Web specific settings (optional)
   web: false
-  
-  # Make splash screen fullscreen (removes status bar)
   fullscreen: true
-  
-  # Info.plist settings for iOS
   info_plist_files:
     - 'ios/Runner/Info.plist'

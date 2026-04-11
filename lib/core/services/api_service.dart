@@ -1,22 +1,29 @@
-//lib\core\services\api_service.dart
+// lib/core/services/api_service.dart
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart'; // provides debugPrint
 import '../../config/api_endpoints.dart';
 import 'storage_service.dart';
+import 'session_service.dart';
 
 class ApiService {
+  // ─── Singleton ────────────────────────────────────────────────────────────
+  static final ApiService _instance = ApiService._internal();
+  factory ApiService() => _instance;
+  ApiService._internal() {
+    _initDio();
+  }
+
   late final Dio dio;
 
-  ApiService() {
+  void _initDio() {
     dio = Dio(
       BaseOptions(
         baseUrl: ApiEndpoints.productionBaseUrl,
-        connectTimeout: const Duration(seconds: 30), // ✅ Increased timeout
-        receiveTimeout: const Duration(seconds: 30), // ✅ Increased timeout
-        sendTimeout: const Duration(seconds: 30),    // ✅ Added send timeout
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 30),
+        sendTimeout: const Duration(seconds: 30),
+        headers: {'Content-Type': 'application/json'},
       ),
     );
 
@@ -27,24 +34,33 @@ class ApiService {
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
           }
-          // ✅ Debug logging
-          print('🌐 API Request: ${options.method} ${options.baseUrl}${options.path}');
-          print('📦 Headers: ${options.headers}');
+          // Log method + path only — never log headers (they contain the token)
+          debugPrint('🌐 ${options.method} ${options.baseUrl}${options.path}');
           handler.next(options);
         },
         onResponse: (response, handler) {
-          // ✅ Debug logging
-          print('✅ API Response: ${response.statusCode} ${response.requestOptions.path}');
+          debugPrint(
+            '✅ ${response.statusCode} ${response.requestOptions.path}',
+          );
           handler.next(response);
         },
-        onError: (error, handler) {
-          // ✅ Better error logging
-          print('❌ API Error: ${error.type}');
-          print('❌ URL: ${error.requestOptions.baseUrl}${error.requestOptions.path}');
-          print('❌ Message: ${error.message}');
+        onError: (error, handler) async {
+          debugPrint('❌ API Error: ${error.type}');
+          debugPrint(
+            '❌ URL: ${error.requestOptions.baseUrl}${error.requestOptions.path}',
+          );
+          debugPrint('❌ Message: ${error.message}');
           if (error.response != null) {
-            print('❌ Response: ${error.response?.data}');
+            debugPrint('❌ Response: ${error.response?.data}');
           }
+
+          // ─── Global 401 handler ──────────────────────────────────────────
+          if (error.response?.statusCode == 401) {
+            debugPrint('🔐 401 detected — clearing auth and forcing logout');
+            await StorageService.clearAuthKeys();
+            SessionService.instance.triggerForceLogout();
+          }
+
           handler.next(error);
         },
       ),

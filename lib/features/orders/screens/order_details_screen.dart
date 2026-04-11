@@ -98,13 +98,15 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
       return;
     }
 
+    if (!mounted) return;
+    // Capture provider before the await gap.
     final provider = context.read<OrdersProvider>();
     final success = await provider.updateOrderStatus(
       orderId: _order.id,
       status: nextStatus,
     );
 
-    if (mounted) {
+    if (!mounted) return;
       if (success) {
         // ✅ FIXED: Update local order and reset slider
         final updatedOrder = provider.getOrderById(_order.id);
@@ -132,7 +134,6 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
           ),
         );
       }
-    }
   }
 
   @override
@@ -179,6 +180,8 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
                               style: theme.textTheme.headlineSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                             if (_order.serialNumber != null)
                               Text(
@@ -525,7 +528,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha:0.1),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: color, size: 20),
@@ -655,7 +658,7 @@ class SlideToConfirmButtonState extends State<SlideToConfirmButton> {
         return Container(
           height: 60,
           decoration: BoxDecoration(
-            color: widget.backgroundColor.withOpacity(0.2),
+            color: widget.backgroundColor.withValues(alpha:0.2),
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
               color: widget.backgroundColor,
@@ -670,7 +673,7 @@ class SlideToConfirmButtonState extends State<SlideToConfirmButton> {
                 width: _dragPosition + 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: widget.backgroundColor.withOpacity(0.3),
+                  color: widget.backgroundColor.withValues(alpha:0.3),
                   borderRadius: BorderRadius.circular(28),
                 ),
               ),
@@ -707,7 +710,7 @@ class SlideToConfirmButtonState extends State<SlideToConfirmButton> {
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: widget.backgroundColor.withOpacity(0.3),
+                          color: widget.backgroundColor.withValues(alpha:0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),

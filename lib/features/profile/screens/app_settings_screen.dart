@@ -1,7 +1,19 @@
 // lib/features/profile/screens/app_settings_screen.dart
+// Group 8 changes:
+//  P5-1: _saveSettings() is silent — no snackbar spam on rapid toggling.
+//  P5-2: Promotional toggle removed — this is a B2B delivery tool, not a
+//        consumer app. There are no promotional notifications.
+//  P5-3: "Clear Cache" now actually clears data: offline location queue +
+//        recent customer searches. Auth data survives.
+//  P5-4: "Privacy Policy" and "Terms of Service" tiles removed entirely.
+//        They showed "Coming soon" snackbars — not acceptable in production.
+//  BONUS: activeColor → activeThumbColor (fixes the deprecated API warning).
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/services/storage_service.dart';
+import '../../go_to/providers/go_to_provider.dart';
 
 class AppSettingsScreen extends StatefulWidget {
   const AppSettingsScreen({super.key});
@@ -14,7 +26,6 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   bool _notificationsEnabled = true;
   bool _orderNotifications = true;
   bool _deliveryUpdates = true;
-  bool _promotionalNotifications = false;
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
   bool _isLoading = true;
@@ -25,32 +36,91 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     _loadSettings();
   }
 
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+  // ─── LOAD ─────────────────────────────────────────────────────────────────
+  // Uses StorageService.getNotificationSettings() which reads from the
+  // cached prefs instance — synchronous, no async overhead.
+
+  void _loadSettings() {
+    final s = StorageService.getNotificationSettings();
     setState(() {
-      _notificationsEnabled = prefs.getBool('notifications_enabled') ?? true;
-      _orderNotifications = prefs.getBool('order_notifications') ?? true;
-      _deliveryUpdates = prefs.getBool('delivery_updates') ?? true;
-      _promotionalNotifications = prefs.getBool('promotional_notifications') ?? false;
-      _soundEnabled = prefs.getBool('sound_enabled') ?? true;
-      _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
+      _notificationsEnabled = s.enabled;
+      _orderNotifications = s.orderNotifs;
+      _deliveryUpdates = s.deliveryUpdates;
+      _soundEnabled = s.sound;
+      _vibrationEnabled = s.vibration;
       _isLoading = false;
     });
   }
 
+  // ─── SAVE (P5-1: silent) ──────────────────────────────────────────────────
+  // Saves are fire-and-forget. The toggle's visual state IS the feedback.
+  // No snackbar — rapid toggling previously stacked multiple banners.
+
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('notifications_enabled', _notificationsEnabled);
-    await prefs.setBool('order_notifications', _orderNotifications);
-    await prefs.setBool('delivery_updates', _deliveryUpdates);
-    await prefs.setBool('promotional_notifications', _promotionalNotifications);
-    await prefs.setBool('sound_enabled', _soundEnabled);
-    await prefs.setBool('vibration_enabled', _vibrationEnabled);
+    await prefs.setBool(
+        StorageService.keyNotificationsEnabled, _notificationsEnabled);
+    await prefs.setBool(
+        StorageService.keyOrderNotifications, _orderNotifications);
+    await prefs.setBool(
+        StorageService.keyDeliveryUpdates, _deliveryUpdates);
+    await prefs.setBool(StorageService.keySoundEnabled, _soundEnabled);
+    await prefs.setBool(
+        StorageService.keyVibrationEnabled, _vibrationEnabled);
+    // No snackbar — intentional (P5-1).
+  }
 
+  // ─── CLEAR CACHE (P5-3: real implementation) ──────────────────────────────
+
+  void _showClearCacheDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Clear Cache',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'This will clear the offline location queue and recent customer '
+          'searches. Your account, orders, and settings will not be affected.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _clearCache();
+            },
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _clearCache() async {
+    // 1. Clear offline location update queue from SharedPreferences.
+    await StorageService.clearLocationQueue();
+
+    // 2. Clear recent customer searches from SharedPreferences.
+    await StorageService.clearRecentSearches();
+
+    // 3. Sync the in-memory GoToProvider list so the Go To screen
+    //    immediately reflects the cleared state without a restart.
+    if (mounted) {
+      await context.read<GoToProvider>().clearRecentSearches();
+    }
+
+    // 4. Show success feedback — only AFTER the work is done.
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Settings saved'),
+          content: Text('Cache cleared successfully'),
           backgroundColor: Colors.green,
           duration: Duration(seconds: 2),
         ),
@@ -58,10 +128,13 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     }
   }
 
+  // ─── ABOUT ────────────────────────────────────────────────────────────────
+
   void _showAboutDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('About App'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -69,10 +142,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           children: [
             const Text(
               'Ice Cream Delivery Partner',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 8),
             const Text('Version: 1.0.0'),
@@ -84,16 +154,13 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             const SizedBox(height: 16),
             Text(
               '© 2025 All rights reserved',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Close'),
           ),
         ],
@@ -101,43 +168,12 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     );
   }
 
-  void _showClearCacheDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Clear Cache'),
-        content: const Text(
-          'This will clear temporary app data. Your account information will not be affected.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Cache cleared successfully'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-  }
+  // ─── BUILD ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -161,10 +197,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child: Container(
-            height: 1,
-            color: const Color(0xFFDBE0E6),
-          ),
+          child: Container(height: 1, color: const Color(0xFFDBE0E6)),
         ),
       ),
       body: SingleChildScrollView(
@@ -173,7 +206,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           children: [
             const SizedBox(height: 8),
 
-            // Notifications Section
+            // ── Notifications ─────────────────────────────────────────────
             Container(
               color: Colors.white,
               child: Column(
@@ -196,8 +229,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     title: 'Enable Notifications',
                     subtitle: 'Receive app notifications',
                     value: _notificationsEnabled,
-                    onChanged: (value) {
-                      setState(() => _notificationsEnabled = value);
+                    onChanged: (v) {
+                      setState(() => _notificationsEnabled = v);
                       _saveSettings();
                     },
                   ),
@@ -208,8 +241,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     subtitle: 'New order assignments',
                     value: _orderNotifications,
                     onChanged: _notificationsEnabled
-                        ? (value) {
-                            setState(() => _orderNotifications = value);
+                        ? (v) {
+                            setState(() => _orderNotifications = v);
                             _saveSettings();
                           }
                         : null,
@@ -221,25 +254,13 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     subtitle: 'Status and tracking alerts',
                     value: _deliveryUpdates,
                     onChanged: _notificationsEnabled
-                        ? (value) {
-                            setState(() => _deliveryUpdates = value);
+                        ? (v) {
+                            setState(() => _deliveryUpdates = v);
                             _saveSettings();
                           }
                         : null,
                   ),
-                  const Divider(height: 1, indent: 72),
-                  _buildSwitchTile(
-                    icon: Icons.campaign,
-                    title: 'Promotional',
-                    subtitle: 'Offers and announcements',
-                    value: _promotionalNotifications,
-                    onChanged: _notificationsEnabled
-                        ? (value) {
-                            setState(() => _promotionalNotifications = value);
-                            _saveSettings();
-                          }
-                        : null,
-                  ),
+                  // P5-2: Promotional Notifications tile removed.
                   const SizedBox(height: 8),
                 ],
               ),
@@ -247,7 +268,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
 
             const SizedBox(height: 8),
 
-            // Sound & Vibration Section
+            // ── Sound & Vibration ─────────────────────────────────────────
             Container(
               color: Colors.white,
               child: Column(
@@ -270,8 +291,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     title: 'Sound',
                     subtitle: 'Play notification sounds',
                     value: _soundEnabled,
-                    onChanged: (value) {
-                      setState(() => _soundEnabled = value);
+                    onChanged: (v) {
+                      setState(() => _soundEnabled = v);
                       _saveSettings();
                     },
                   ),
@@ -281,8 +302,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     title: 'Vibration',
                     subtitle: 'Vibrate on notifications',
                     value: _vibrationEnabled,
-                    onChanged: (value) {
-                      setState(() => _vibrationEnabled = value);
+                    onChanged: (v) {
+                      setState(() => _vibrationEnabled = v);
                       _saveSettings();
                     },
                   ),
@@ -293,7 +314,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
 
             const SizedBox(height: 8),
 
-            // App Data Section
+            // ── App Data ──────────────────────────────────────────────────
             Container(
               color: Colors.white,
               child: Column(
@@ -314,7 +335,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                   _buildActionTile(
                     icon: Icons.cleaning_services,
                     title: 'Clear Cache',
-                    subtitle: 'Free up storage space',
+                    subtitle: 'Clears offline queue and recent searches',
                     onTap: _showClearCacheDialog,
                   ),
                   const SizedBox(height: 8),
@@ -324,7 +345,9 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
 
             const SizedBox(height: 8),
 
-            // About Section
+            // ── About ─────────────────────────────────────────────────────
+            // P5-4: Privacy Policy and Terms of Service tiles removed.
+            //       They showed "Coming soon" snackbars — not production ready.
             Container(
               color: Colors.white,
               child: Column(
@@ -348,32 +371,6 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     subtitle: 'Version and credits',
                     onTap: _showAboutDialog,
                   ),
-                  const Divider(height: 1, indent: 72),
-                  _buildActionTile(
-                    icon: Icons.privacy_tip,
-                    title: 'Privacy Policy',
-                    subtitle: 'View privacy policy',
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Privacy Policy - Coming soon'),
-                        ),
-                      );
-                    },
-                  ),
-                  const Divider(height: 1, indent: 72),
-                  _buildActionTile(
-                    icon: Icons.description,
-                    title: 'Terms of Service',
-                    subtitle: 'View terms and conditions',
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Terms of Service - Coming soon'),
-                        ),
-                      );
-                    },
-                  ),
                   const SizedBox(height: 8),
                 ],
               ),
@@ -385,6 +382,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       ),
     );
   }
+
+  // ─── TILE BUILDERS ────────────────────────────────────────────────────────
 
   Widget _buildSwitchTile({
     required IconData icon,
@@ -427,8 +426,10 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       ),
       value: value,
       onChanged: onChanged,
-      activeColor: const Color(0xFF2B8CEE),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      // Replaced deprecated activeColor with activeThumbColor (P5-2 bonus fix).
+      activeThumbColor: const Color(0xFF2B8CEE),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     );
   }
 
@@ -446,32 +447,21 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           color: const Color(0xFF2B8CEE).withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Icon(
-          icon,
-          color: const Color(0xFF2B8CEE),
-          size: 20,
-        ),
+        child: Icon(icon, color: const Color(0xFF2B8CEE), size: 20),
       ),
       title: Text(
         title,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-        ),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF617589),
-        ),
+        style: const TextStyle(fontSize: 13, color: Color(0xFF617589)),
       ),
-      trailing: const Icon(
-        Icons.chevron_right,
-        color: Color(0xFF617589),
-      ),
+      trailing:
+          const Icon(Icons.chevron_right, color: Color(0xFF617589)),
       onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     );
   }
 }

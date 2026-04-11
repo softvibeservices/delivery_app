@@ -1,4 +1,5 @@
-//lib\features\auth\screens\otp_screen.dart
+// lib/features/auth/screens/otp_screen.dart
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -18,7 +19,7 @@ class _OtpScreenState extends State<OtpScreen> {
     AppConstants.otpLength,
     (_) => TextEditingController(),
   );
-  
+
   final List<FocusNode> _focusNodes = List.generate(
     AppConstants.otpLength,
     (_) => FocusNode(),
@@ -38,9 +39,7 @@ class _OtpScreenState extends State<OtpScreen> {
 
   void _startTimer() {
     _timer?.cancel();
-    setState(() {
-      _secondsLeft = AppConstants.otpResendCooldown;
-    });
+    setState(() => _secondsLeft = AppConstants.otpResendCooldown);
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_secondsLeft == 0) {
         timer.cancel();
@@ -63,16 +62,13 @@ class _OtpScreenState extends State<OtpScreen> {
     super.dispose();
   }
 
+  // ─── VERIFY ───────────────────────────────────────────────────────────────
+
   Future<void> _verify() async {
     final otp = _controllers.map((e) => e.text).join();
 
     if (otp.length != AppConstants.otpLength) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter complete OTP'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      _showSnack('Please enter the complete OTP', Colors.orange);
       return;
     }
 
@@ -82,12 +78,7 @@ class _OtpScreenState extends State<OtpScreen> {
     if (!mounted) return;
 
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showSnack(error, Colors.red);
       for (final c in _controllers) {
         c.clear();
       }
@@ -97,16 +88,11 @@ class _OtpScreenState extends State<OtpScreen> {
 
     switch (auth.status) {
       case AuthStatus.authenticated:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Login successful!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 1),
-          ),
-        );
+        _showSnack('Login successful!', Colors.green,
+            duration: const Duration(seconds: 1));
         Navigator.pushNamedAndRemoveUntil(
           context,
-          AppRoutes.orders,
+          AppRoutes.main,
           (_) => false,
         );
         break;
@@ -118,12 +104,7 @@ class _OtpScreenState extends State<OtpScreen> {
         );
         break;
       default:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Account has been rejected. Contact admin.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showSnack('Account has been rejected. Contact admin.', Colors.red);
         Navigator.pushNamedAndRemoveUntil(
           context,
           AppRoutes.login,
@@ -132,28 +113,50 @@ class _OtpScreenState extends State<OtpScreen> {
     }
   }
 
+  // ─── RESEND OTP (real — calls AuthProvider.resendOtp()) ───────────────────
+
   Future<void> _resendOtp() async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Resending OTP...'),
-        duration: Duration(seconds: 1),
-      ),
-    );
-    
+    final auth = context.read<AuthProvider>();
+
+    // Show loading state visually while the request is in flight.
+    _showSnack('Sending new OTP...', Colors.blueGrey,
+        duration: const Duration(seconds: 1));
+
+    final error = await auth.resendOtp();
+
+    if (!mounted) return;
+
+    if (error != null) {
+      _showSnack(error, Colors.red);
+      return;
+    }
+
+    // Success — reset timer and clear boxes.
     _startTimer();
-    
     for (final c in _controllers) {
       c.clear();
     }
     _focusNodes[0].requestFocus();
-    
+    _showSnack('New OTP sent to your email', Colors.green);
+  }
+
+  // ─── HELPERS ──────────────────────────────────────────────────────────────
+
+  void _showSnack(
+    String message,
+    Color color, {
+    Duration duration = const Duration(seconds: 3),
+  }) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('New OTP sent to your email'),
-        backgroundColor: Colors.green,
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: duration,
       ),
     );
   }
+
+  // ─── BUILD ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -172,8 +175,7 @@ class _OtpScreenState extends State<OtpScreen> {
           child: Column(
             children: [
               const SizedBox(height: 20),
-              
-              // Icon
+
               Container(
                 height: 70,
                 width: 70,
@@ -181,15 +183,11 @@ class _OtpScreenState extends State<OtpScreen> {
                   shape: BoxShape.circle,
                   color: primary.withValues(alpha: 0.1),
                 ),
-                child: Icon(
-                  Icons.email_outlined,
-                  size: 35,
-                  color: primary,
-                ),
+                child: Icon(Icons.email_outlined, size: 35, color: primary),
               ),
-              
+
               const SizedBox(height: 24),
-              
+
               Text(
                 'Enter Verification Code',
                 style: theme.textTheme.titleLarge?.copyWith(
@@ -198,9 +196,9 @@ class _OtpScreenState extends State<OtpScreen> {
                 ),
                 textAlign: TextAlign.center,
               ),
-              
+
               const SizedBox(height: 8),
-              
+
               Text(
                 'We sent a 6-digit code to your email',
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -208,10 +206,9 @@ class _OtpScreenState extends State<OtpScreen> {
                 ),
                 textAlign: TextAlign.center,
               ),
-              
+
               const SizedBox(height: 32),
 
-              // ✅ OTP Input Fields - Fixed sizing
               Wrap(
                 alignment: WrapAlignment.center,
                 spacing: 8,
@@ -223,16 +220,12 @@ class _OtpScreenState extends State<OtpScreen> {
 
               const SizedBox(height: 32),
 
-              // Timer and Resend
               if (_secondsLeft > 0)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(
-                      Icons.timer_outlined,
-                      size: 18,
-                      color: Colors.grey,
-                    ),
+                    const Icon(Icons.timer_outlined,
+                        size: 18, color: Colors.grey),
                     const SizedBox(width: 8),
                     Text(
                       'Resend OTP in $_secondsLeft sec',
@@ -252,7 +245,8 @@ class _OtpScreenState extends State<OtpScreen> {
                       ),
                     ),
                     TextButton.icon(
-                      onPressed: _resendOtp,
+                      // Disable during loading so users can't spam the button.
+                      onPressed: loading ? null : _resendOtp,
                       icon: const Icon(Icons.refresh, size: 18),
                       label: const Text(
                         'Resend OTP',
@@ -264,7 +258,6 @@ class _OtpScreenState extends State<OtpScreen> {
 
               const SizedBox(height: 40),
 
-              // Verify Button
               SizedBox(
                 width: double.infinity,
                 height: 56,
@@ -298,7 +291,7 @@ class _OtpScreenState extends State<OtpScreen> {
                         ),
                 ),
               ),
-              
+
               const SizedBox(height: 20),
             ],
           ),
@@ -343,14 +336,10 @@ class _OtpScreenState extends State<OtpScreen> {
               _focusNodes[index].unfocus();
             }
           } else {
-            if (index > 0) {
-              _focusNodes[index - 1].requestFocus();
-            }
+            if (index > 0) _focusNodes[index - 1].requestFocus();
           }
         },
-        onTap: () {
-          _controllers[index].clear();
-        },
+        onTap: () => _controllers[index].clear(),
       ),
     );
   }
