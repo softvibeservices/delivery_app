@@ -24,7 +24,7 @@ class NotificationService {
   static const String _orderChannelId = 'new_orders';
   static const String _orderChannelName = 'New Orders';
   static const String _orderChannelDesc =
-      'Notifications for new delivery assignments';
+      'Notifications for new available delivery orders';
 
   static const String _updateChannelId = 'delivery_updates';
   static const String _updateChannelName = 'Delivery Updates';
@@ -106,7 +106,10 @@ class NotificationService {
 
   // ─── PUBLIC SHOW METHODS ──────────────────────────────────────────────────
 
-  /// Show a new-order notification, respecting user settings.
+  /// Show a "new order available" broadcast notification.
+  ///
+  /// Called when the backend broadcasts a new order to ALL approved partners.
+  /// No one is assigned yet — the message tells them to open the app and check.
   Future<void> showNewOrderNotification({
     required String orderId,
     required String customerName,
@@ -125,13 +128,14 @@ class NotificationService {
       return;
     }
 
+    // Body tells the partner there is a new order — not that it is assigned yet.
     final body = shopName.isNotEmpty
-        ? 'Order for $shopName assigned to you'
-        : 'New order for $customerName assigned to you';
+        ? 'New order for $shopName — check the app'
+        : 'New order for $customerName — check the app';
 
     await _show(
       id: orderId.hashCode,
-      title: 'New Order Assigned',
+      title: 'New Order Available',
       body: body,
       channelId: _orderChannelId,
       payload: orderId,

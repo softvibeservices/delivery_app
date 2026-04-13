@@ -6,14 +6,13 @@
 //  - Notification tap → navigation
 
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
-import 'api_service.dart';
 import 'notification_service.dart';
 import 'storage_service.dart';
 import '../../config/api_endpoints.dart';
-import 'package:dio/dio.dart'; // for Options
 
 // ─── Background message handler ───────────────────────────────────────────────
 // MUST be a top-level function — cannot be inside a class.
@@ -22,7 +21,6 @@ import 'package:dio/dio.dart'; // for Options
 // `notification` block, so we only need to handle data-only messages here.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Ensure Firebase is initialised in the background isolate.
   await Firebase.initializeApp();
 
   debugPrint(
@@ -67,21 +65,28 @@ class FCMService {
       badge: true,
       sound: true,
     );
-    debugPrint(
-      '📱 FCM permission: ${settings.authorizationStatus}',
-    );
+    debugPrint('📱 FCM permission: ${settings.authorizationStatus}');
 
     // 2. Register the background handler.
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-    // 3. Get current token and send to backend.
+    // 3. Get current token and conditionally send to backend.
+    //    _registerToken() guards against sending when no auth token exists,
+    //    so it is safe to call on cold start before the user logs in.
     await _registerToken();
 
     // 4. Listen for token refresh (device reinstall, token rotation, etc.).
     _messaging.onTokenRefresh.listen((newToken) async {
       debugPrint('🔄 FCM token refreshed');
       await StorageService.saveFcmToken(newToken);
-      await _sendTokenToBackend(newToken);
+      // StorageService.getToken() is async (FlutterSecureStorage).
+      final authToken = await StorageService.getToken();
+      if (authToken != null && authToken.isNotEmpty) {
+        await _sendTokenToBackend(newToken, authToken);
+      } else {
+        debugPrint(
+            '⚠️ FCM token refreshed but user not logged in — saved locally only');
+      }
     });
 
     // 5. Handle foreground messages (app is open and active).
@@ -103,48 +108,100 @@ class FCMService {
 
   // ─── TOKEN MANAGEMENT ─────────────────────────────────────────────────────
 
+  /// Fetches the FCM device token from Firebase.
+  /// Always saves it locally via StorageService.
+  /// Only calls the backend if the user already has a valid auth token —
+  /// this prevents the 401 → force-logout → infinite loop on cold start.
   Future<void> _registerToken() async {
     try {
-      final token = await _messaging.getToken();
-      if (token == null) {
+      final fcmToken = await _messaging.getToken();
+      if (fcmToken == null) {
         debugPrint('⚠️ FCM token is null — skipping registration');
         return;
       }
-      debugPrint('🔑 FCM token: ${token.substring(0, 20)}...');
-      await StorageService.saveFcmToken(token);
-      await _sendTokenToBackend(token);
+
+      debugPrint('🔑 FCM token: ${fcmToken.substring(0, 20)}...');
+
+      // Always persist locally so sendTokenAfterLogin() can read it.
+      await StorageService.saveFcmToken(fcmToken);
+
+      // StorageService.getToken() reads from FlutterSecureStorage (async).
+      final authToken = await StorageService.getToken();
+      if (authToken == null || authToken.isEmpty) {
+        debugPrint(
+          '⚠️ FCM: No auth token — token saved locally, will be sent after login',
+        );
+        return;
+      }
+
+      await _sendTokenToBackend(fcmToken, authToken);
     } catch (e) {
       debugPrint('❌ FCM token registration error: $e');
     }
   }
 
-  Future<void> _sendTokenToBackend(String token) async {
+  /// Call this immediately after a successful login / OTP verification.
+  /// Reads the locally-saved FCM token and pushes it to the backend now
+  /// that a valid auth token is in secure storage.
+  Future<void> sendTokenAfterLogin() async {
     try {
-      await ApiService().dio.patch(
+      // getFcmToken() is synchronous (SharedPreferences).
+      final fcmToken = StorageService.getFcmToken();
+      // getToken() is asynchronous (FlutterSecureStorage).
+      final authToken = await StorageService.getToken();
+
+      if (authToken == null || authToken.isEmpty) {
+        debugPrint('⚠️ sendTokenAfterLogin: no auth token yet — aborting');
+        return;
+      }
+
+      if (fcmToken != null && fcmToken.isNotEmpty) {
+        debugPrint('📤 Sending stored FCM token to backend after login...');
+        await _sendTokenToBackend(fcmToken, authToken);
+      } else {
+        // No locally-stored FCM token yet — fetch fresh from Firebase.
+        debugPrint(
+            '📤 No stored FCM token — fetching fresh token after login...');
+        await _registerToken();
+      }
+    } catch (e) {
+      debugPrint('❌ sendTokenAfterLogin error: $e');
+    }
+  }
+
+  /// Sends the FCM token to the backend.
+  /// Uses a plain Dio (not ApiService.dio) to avoid interceptor side-effects.
+  Future<void> _sendTokenToBackend(String fcmToken, String authToken) async {
+    try {
+      final dio = _buildAuthenticatedDio(authToken);
+      await dio.patch(
         ApiEndpoints.updateFcmToken,
-        data: {'fcmToken': token},
+        data: {'fcmToken': fcmToken},
       );
       debugPrint('✅ FCM token sent to backend');
     } catch (e) {
-      // Non-fatal — token will be re-sent on next login or refresh.
+      // Non-fatal — token will be re-sent on next login or token refresh.
       debugPrint('⚠️ Failed to send FCM token to backend: $e');
     }
   }
 
-    /// Call this on logout to disassociate this device from the partner.
+  /// Call this on logout to disassociate this device from the partner.
   /// Pass the session token BEFORE it gets wiped from storage.
   Future<void> clearToken({required String sessionToken}) async {
     try {
-      // Use a plain Dio instance — bypass the auth interceptor entirely.
-      // We pass the token manually because storage may already be cleared
-      // by the time this call fires.
-      final dio = ApiService().dio;
+      if (sessionToken.isEmpty) {
+        debugPrint('⚠️ clearToken: empty sessionToken — skipping backend call');
+        return;
+      }
+
+      // Use a plain Dio instance — bypass ApiService interceptors entirely.
+      // ApiService.dio would re-read the (already-cleared) auth token,
+      // send an unauthenticated request, get 401, and trigger force-logout
+      // again — causing an infinite loop.
+      final dio = _buildAuthenticatedDio(sessionToken);
       await dio.patch(
         ApiEndpoints.updateFcmToken,
         data: {'fcmToken': null},
-        options: Options(
-          headers: {'Authorization': 'Bearer $sessionToken'},
-        ),
       );
       debugPrint('✅ FCM token cleared on backend');
     } catch (e) {
@@ -153,6 +210,21 @@ class FCMService {
     } finally {
       await StorageService.saveFcmToken('');
     }
+  }
+
+  /// Builds a plain Dio with a hardcoded Bearer token and no interceptors.
+  /// Used for all FCM backend calls to avoid auth interceptor side-effects.
+  Dio _buildAuthenticatedDio(String bearerToken) {
+    return Dio(
+      BaseOptions(
+        baseUrl: ApiEndpoints.productionBaseUrl,
+        connectTimeout: const Duration(seconds: 30),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $bearerToken',
+        },
+      ),
+    );
   }
 
   // ─── MESSAGE HANDLERS ─────────────────────────────────────────────────────
@@ -169,7 +241,10 @@ class FCMService {
     if (type == 'new_order') {
       NotificationService.instance.showNewOrderNotification(
         orderId: message.data['orderId'] ?? '',
-        customerName: message.notification?.body ?? 'Customer',
+        // Use data['customerName'], not notification?.body.
+        // notification?.body is the full display string like
+        // "New order for Shop X — check the app", not just the name.
+        customerName: message.data['customerName'] ?? 'Customer',
         shopName: message.data['shopName'] ?? '',
       );
     } else if (type == 'order_status_update') {
@@ -185,10 +260,10 @@ class FCMService {
     debugPrint(
       '👆 FCM notification tapped: type=${message.data['type']}',
     );
-    // Navigation from notification tap is intentionally left simple here.
-    // The app opens to the main shell. If you want deep-link to a specific
-    // order, store the orderId and navigate in your router after app is ready.
-    // Example: store message.data['orderId'] in a pending navigation queue.
+    // Navigation from notification tap is intentionally kept simple here.
+    // The app opens to the main shell. For deep-linking to a specific order,
+    // store message.data['orderId'] in a pending navigation queue and consume
+    // it once your router is ready.
   }
 
   // ─── DISPOSE ──────────────────────────────────────────────────────────────

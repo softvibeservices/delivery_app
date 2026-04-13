@@ -13,7 +13,6 @@ import '../../../core/services/fcm_service.dart';
 enum AuthStatus { unknown, authenticated, unauthenticated, pending, rejected }
 
 class AuthProvider extends ChangeNotifier {
-  // ApiService is a singleton — just call the factory constructor.
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
 
@@ -34,8 +33,6 @@ class AuthProvider extends ChangeNotifier {
   // ─── INITIALIZE ───────────────────────────────────────────────────────────
 
   Future<void> initialize() async {
-    // Single batched async call — token is in secure storage (async),
-    // status and partnerId are in cached SharedPreferences (sync inside).
     final auth = await StorageService.getAuthData();
 
     _partnerId = auth.partnerId;
@@ -46,8 +43,6 @@ class AuthProvider extends ChangeNotifier {
       switch (auth.status) {
         case 'approved':
           _status = AuthStatus.authenticated;
-          // Start location silently — no UI needed here; tracking starts
-          // in the background. Permission dialogs are handled in OtpScreen.
           _startLocationTracking();
           break;
         case 'pending':
@@ -177,8 +172,6 @@ class AuthProvider extends ChangeNotifier {
 
   // ─── RESEND OTP ───────────────────────────────────────────────────────────
 
-  /// Re-triggers an OTP send using the stored partnerId.
-  /// Returns null on success, or an error string on failure.
   Future<String?> resendOtp() async {
     try {
       _isLoading = true;
@@ -190,7 +183,6 @@ class AuthProvider extends ChangeNotifier {
 
       debugPrint('🔄 Resending OTP for partner: $_partnerId');
 
-      // Re-call the same OTP endpoint the backend uses to dispatch a new OTP.
       await _apiService.dio.post(
         ApiEndpoints.loginOtp,
         data: {'partnerId': _partnerId},
@@ -227,6 +219,7 @@ class AuthProvider extends ChangeNotifier {
 
       if (token == null) return 'No token received from server';
 
+      // ✅ Save auth token first — FCMService.sendTokenAfterLogin() needs it.
       await StorageService.saveToken(token);
 
       if (partner != null) {
@@ -238,9 +231,10 @@ class AuthProvider extends ChangeNotifier {
           case 'approved':
             _status = AuthStatus.authenticated;
             _startLocationTracking();
-            // Register FCM token now that we have an authenticated partner.
-            // unawaited so it doesn't block the login completion.
-            unawaited(FCMService.instance.init());
+            // ✅ sendTokenAfterLogin() reads the auth token we just saved
+            // and PATCHes the FCM token to the backend.
+            // Fire-and-forget — does not block login completion.
+            unawaited(FCMService.instance.sendTokenAfterLogin());
             break;
           case 'pending':
             _status = AuthStatus.pending;
@@ -251,12 +245,13 @@ class AuthProvider extends ChangeNotifier {
           default:
             _status = AuthStatus.unauthenticated;
         }
-        } else {
-            await StorageService.savePartnerStatus('approved');
-            _status = AuthStatus.authenticated;
-            _startLocationTracking();
-            unawaited(FCMService.instance.init());
-          }
+      } else {
+        await StorageService.savePartnerStatus('approved');
+        _status = AuthStatus.authenticated;
+        _startLocationTracking();
+        // ✅ Same here — token is already in secure storage at this point.
+        unawaited(FCMService.instance.sendTokenAfterLogin());
+      }
 
       notifyListeners();
       return null;
@@ -275,10 +270,11 @@ class AuthProvider extends ChangeNotifier {
   // ─── LOGOUT ───────────────────────────────────────────────────────────────
 
   Future<void> logout() async {
+    // Capture the token BEFORE clearing storage — clearToken() needs it.
     final sessionToken = await StorageService.getToken();
     await _stopLocationTracking();
-    // Clear FCM token from backend so no more push notifications are sent
-    // to this device after logout. Fire-and-forget — non-blocking.
+    // Clear FCM token on backend so no more pushes arrive after logout.
+    // Uses a plain Dio internally — will not re-trigger force-logout on 401.
     await FCMService.instance.clearToken(sessionToken: sessionToken ?? '');
     await StorageService.clearAuthKeys();
     _status = AuthStatus.unauthenticated;
@@ -327,8 +323,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ─── LOCATION TRACKING ────────────────────────────────────────────────────
-  // These are fire-and-forget — permission dialogs must be shown by the UI
-  // layer (OtpScreen / SplashScreen) before tracking is started.
 
   void _startLocationTracking() {
     _locationService.startTracking().then((started) {

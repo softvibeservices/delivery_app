@@ -191,10 +191,10 @@ class BackgroundLocationService {
 
             await showLocalNotification(
               id: orderId.hashCode,
-              title: 'New Order Assigned',
+              title: 'New Order Available',
               body: shopName.isNotEmpty
-                  ? 'Order for $shopName assigned to you'
-                  : 'New order for $customerName assigned to you',
+                  ? 'New order for $shopName — check the app'
+                  : 'New order for $customerName — check the app',
             );
           }
         } else {
