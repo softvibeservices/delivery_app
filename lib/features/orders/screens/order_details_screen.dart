@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/order_model.dart';
 import '../providers/orders_provider.dart';
+import '../../../core/services/notification_service.dart'; 
 
 class OrderDetailsScreen extends StatefulWidget {
   final OrderModel order;
@@ -134,6 +135,12 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
           ),
         );
       }
+
+    await NotificationService.instance.showOrderStatusNotification(
+      orderId: _order.id,
+      status: nextStatus,
+      customerName: _order.shopName ?? _order.customerName,
+    );
   }
 
   @override

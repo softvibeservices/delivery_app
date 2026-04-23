@@ -11,8 +11,9 @@ import '../models/order_model.dart';
 class OrdersProvider extends ChangeNotifier {
   final ApiService _apiService;
 
-  // ApiService is injected so the whole app shares one Dio instance.
   OrdersProvider(this._apiService);
+
+  // ─── State ────────────────────────────────────────────────────────────────
 
   List<OrderModel> _orders = [];
   List<OrderModel> get orders => _orders;
@@ -26,9 +27,40 @@ class OrdersProvider extends ChangeNotifier {
   DateTime? _lastUpdated;
   DateTime? get lastUpdated => _lastUpdated;
 
+  /// True once the first successful fetch has completed.
+  bool _hasFetched = false;
+  bool get hasFetched => _hasFetched;
+
+  // ─── FETCH IF NEEDED ──────────────────────────────────────────────────────
+  //
+  // Called by PendingOrdersScreen on mount.  Smart rules:
+  //   1. Never already loading  → skip
+  //   2. Never fetched          → fetch
+  //   3. Last fetch errored     → retry
+  //   4. Data stale (> 5 min)   → refresh
+  //   5. Otherwise              → skip (use cached data)
+  //
+  // This guarantees the screen always shows data on first open without
+  // hammering the API on every tab switch.
+
+  static const _staleDuration = Duration(minutes: 5);
+
+  Future<void> fetchIfNeeded() async {
+    if (_isLoading) return; // already in-flight
+
+    final isStale = _lastUpdated == null ||
+        DateTime.now().difference(_lastUpdated!) > _staleDuration;
+
+    if (!_hasFetched || _error != null || isStale) {
+      await fetchOrders();
+    }
+  }
+
   // ─── FETCH ────────────────────────────────────────────────────────────────
 
   Future<void> fetchOrders() async {
+    if (_isLoading) return;
+
     try {
       _isLoading = true;
       _error = null;
@@ -51,22 +83,27 @@ class OrdersProvider extends ChangeNotifier {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data is List
-            ? response.data
-            : (response.data['orders'] ?? []);
+            ? response.data as List
+            : (response.data['orders'] as List? ?? []);
 
-        _orders = data.map((json) => OrderModel.fromJson(json)).toList();
+        _orders = data
+            .map((json) => OrderModel.fromJson(json as Map<String, dynamic>))
+            .toList();
         _lastUpdated = DateTime.now();
+        _hasFetched = true;
         _error = null;
         debugPrint('✅ Loaded ${_orders.length} orders');
       }
     } on DioException catch (e) {
       _error = handleDioError(e, entityName: 'orders');
       debugPrint('❌ DioException: ${e.type} - ${e.message}');
-      _orders = [];
+      // Keep any existing orders visible so the user sees something
+      // (empty list would appear as "no orders" which is misleading on error)
+      if (!_hasFetched) _orders = [];
     } catch (e) {
       _error = 'Unexpected error: ${e.toString()}';
       debugPrint('❌ Unexpected error: $e');
-      _orders = [];
+      if (!_hasFetched) _orders = [];
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -93,6 +130,9 @@ class OrdersProvider extends ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
+        // Update the local copy immediately so the UI snaps without waiting
+        // for a full refetch — then fetch to sync with server.
+        _updateLocalOrderStatus(orderId, status);
         await fetchOrders();
         debugPrint('✅ Order updated and list refreshed');
         return true;
@@ -107,6 +147,55 @@ class OrdersProvider extends ChangeNotifier {
       debugPrint('❌ Unexpected update error: $e');
       return false;
     }
+  }
+
+  /// Optimistically update a single order's delivery status in the local list
+  /// so the UI reflects the change before the refetch completes.
+  void _updateLocalOrderStatus(String orderId, String newStatus) {
+    final index = _orders.indexWhere((o) => o.id == orderId);
+    if (index == -1) return;
+
+    // OrderModel is immutable, so we rebuild with fromJson using the local data
+    final existing = _orders[index];
+    final now = DateTime.now();
+    final updated = OrderModel(
+      id: existing.id,
+      userId: existing.userId,
+      orderId: existing.orderId,
+      serialNumber: existing.serialNumber,
+      shopName: existing.shopName,
+      customerId: existing.customerId,
+      customerName: existing.customerName,
+      customerAddress: existing.customerAddress,
+      customerContact: existing.customerContact,
+      customerLat: existing.customerLat,
+      customerLng: existing.customerLng,
+      items: existing.items,
+      freeItems: existing.freeItems,
+      quantitySummary: existing.quantitySummary,
+      subtotal: existing.subtotal,
+      discountPercentage: existing.discountPercentage,
+      total: existing.total,
+      remarks: existing.remarks,
+      status: existing.status,
+      settlementMethod: existing.settlementMethod,
+      settlementAmount: existing.settlementAmount,
+      deliveryPartnerId: existing.deliveryPartnerId,
+      deliveryStatus: newStatus,
+      deliveryAssignedAt: existing.deliveryAssignedAt,
+      deliveryOnTheWayAt: newStatus == 'On the Way'
+          ? now
+          : existing.deliveryOnTheWayAt,
+      deliveryCompletedAt: newStatus == 'Delivered'
+          ? now
+          : existing.deliveryCompletedAt,
+      deliveryNotes: existing.deliveryNotes,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+    );
+
+    _orders[index] = updated;
+    notifyListeners();
   }
 
   // ─── FILTER ───────────────────────────────────────────────────────────────
@@ -149,7 +238,7 @@ class OrdersProvider extends ChangeNotifier {
   OrderModel? getOrderById(String id) {
     try {
       return _orders.firstWhere((order) => order.id == id);
-    } catch (e) {
+    } catch (_) {
       debugPrint('⚠️ Order not found: $id');
       return null;
     }

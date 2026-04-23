@@ -16,41 +16,63 @@ class GoToScreen extends StatefulWidget {
 class _GoToScreenState extends State<GoToScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
+  final ScrollController _scrollController = ScrollController();
+
+  static const _kBrand = Color(0xFF2B8CEE);
+
+  @override
+  void initState() {
+    super.initState();
+    // Load the full customer list on first open.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<GoToProvider>().loadCustomers(refresh: true);
+    });
+
+    // Infinite scroll — load next page when 80 % of the list is visible.
+    _scrollController.addListener(() {
+      final pos = _scrollController.position;
+      if (pos.pixels >= pos.maxScrollExtent * 0.8) {
+        context.read<GoToProvider>().loadMoreCustomers();
+      }
+    });
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocus.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   void _handleSearch(String query) {
     context.read<GoToProvider>().searchCustomers(query);
+    setState(() {}); // refresh clear-button visibility
   }
 
   void _clearSearch() {
     _searchController.clear();
     context.read<GoToProvider>().clearSearch();
-    // Force rebuild to show recent searches
     setState(() {});
+    _searchFocus.unfocus();
   }
 
-  Future<void> _viewCustomerDetails(CustomerModel customer) async {
-    try {
-      await context.read<GoToProvider>().addToRecentSearches(customer);
-
-      if (!mounted) return;   // ADD THIS — guards context use after await
-
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => CustomerDetailScreen(customer: customer),
-        ),
-      );
-    } catch (e) {
-      debugPrint('Navigation error: $e');
-    }
+  Future<void> _viewCustomer(CustomerModel customer) async {
+    await context.read<GoToProvider>().addToRecentSearches(customer);
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CustomerDetailScreen(customer: customer),
+      ),
+    );
   }
+
+  Future<void> _refresh() async {
+    await context.read<GoToProvider>().loadCustomers(refresh: true);
+  }
+
+  // ─── BUILD ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -59,25 +81,43 @@ class _GoToScreenState extends State<GoToScreen> {
       appBar: AppBar(
         elevation: 0,
         scrolledUnderElevation: 0,
-        backgroundColor: Colors.white.withValues(alpha: 0.8),
-        centerTitle: true,
+        backgroundColor: Colors.white,
         automaticallyImplyLeading: false,
         title: const Text(
-          'Search Customer',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-            letterSpacing: -0.015 * 18,
-          ),
+          'Go To',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
+        // Live customer count badge in the app bar.
+        actions: [
+          Selector<GoToProvider, int>(
+            selector: (_, p) => p.totalCustomers,
+            builder: (_, total, _) {
+              if (total == 0) return const SizedBox.shrink();
+              return Container(
+                margin: const EdgeInsets.only(right: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _kBrand.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  '$total customers',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _kBrand,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(72),
+          preferredSize: const Size.fromHeight(64),
           child: Column(
             children: [
-              Container(
-                height: 1,
-                color: const Color(0xFFDBE0E6),
-              ),
+              Container(height: 1, color: const Color(0xFFDBE0E6)),
               _buildSearchBar(),
             ],
           ),
@@ -85,33 +125,24 @@ class _GoToScreenState extends State<GoToScreen> {
       ),
       body: Consumer<GoToProvider>(
         builder: (context, provider, _) {
-          return SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Recent Searches Section (show only when search is empty)
-                if (provider.recentSearches.isNotEmpty &&
-                    provider.searchQuery.isEmpty)
-                  _buildRecentSearches(provider),
-
-                // Search Results Section
-                if (provider.searchQuery.isNotEmpty)
-                  _buildSearchResults(provider),
-
-                const SizedBox(height: 100),
-              ],
-            ),
-          );
+          // ── Search active: show search results ──────────────────────────
+          if (provider.searchQuery.isNotEmpty) {
+            return _buildSearchResults(provider);
+          }
+          // ── No search: show full paginated list ─────────────────────────
+          return _buildAllCustomersList(provider);
         },
       ),
     );
   }
 
+  // ─── SEARCH BAR ───────────────────────────────────────────────────────────
+
   Widget _buildSearchBar() {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
       child: Container(
-        height: 48,
+        height: 44,
         decoration: BoxDecoration(
           color: const Color(0xFFF0F2F4),
           borderRadius: BorderRadius.circular(12),
@@ -119,34 +150,26 @@ class _GoToScreenState extends State<GoToScreen> {
         child: TextField(
           controller: _searchController,
           focusNode: _searchFocus,
-          onChanged: (value) {
-            _handleSearch(value);
-            setState(() {}); // ✅ Rebuild to show/hide X button
-          },
-          style: const TextStyle(fontSize: 16),
+          onChanged: _handleSearch,
+          style: const TextStyle(fontSize: 15),
           decoration: InputDecoration(
-            hintText: 'Search customer by name or shop...',
+            hintText: 'Search by customer or shop name...',
             hintStyle: const TextStyle(
               color: Color(0xFF617589),
-              fontSize: 16,
+              fontSize: 14,
             ),
-            prefixIcon: const Icon(
-              Icons.search,
-              color: Color(0xFF617589),
-              size: 24,
-            ),
-            // ✅ Always show X button when there's text
+            prefixIcon: const Icon(Icons.search,
+                color: Color(0xFF617589), size: 20),
             suffixIcon: _searchController.text.isNotEmpty
                 ? IconButton(
-                    icon: const Icon(Icons.clear, size: 20),
+                    icon: const Icon(Icons.clear,
+                        size: 18, color: Color(0xFF617589)),
                     onPressed: _clearSearch,
-                    color: const Color(0xFF617589),
                   )
                 : null,
             border: InputBorder.none,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
+              horizontal: 12, vertical: 12,
             ),
           ),
         ),
@@ -154,70 +177,338 @@ class _GoToScreenState extends State<GoToScreen> {
     );
   }
 
-  Widget _buildRecentSearches(GoToProvider provider) {
-    // ✅ FIXED: Show only last 3 recent searches
-    final recentToShow = provider.recentSearches.take(3).toList();
+  // ─── FULL CUSTOMERS LIST ──────────────────────────────────────────────────
+
+  Widget _buildAllCustomersList(GoToProvider provider) {
+    if (provider.isLoadingCustomers && provider.allCustomers.isEmpty) {
+      return _buildLoadingShimmer();
+    }
+
+    if (provider.error != null && provider.allCustomers.isEmpty) {
+      return _buildErrorState(provider);
+    }
+
+    if (!provider.isLoadingCustomers && provider.allCustomers.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: _kBrand,
+      child: CustomScrollView(
+        controller: _scrollController,
+        slivers: [
+          // Recent searches section (pinned at top when not empty)
+          if (provider.recentSearches.isNotEmpty)
+            SliverToBoxAdapter(
+              child: _buildRecentSearchesSection(provider),
+            ),
+
+          // Section header
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Row(
+                children: [
+                  const Text(
+                    'ALL CUSTOMERS',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF617589),
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (provider.totalCustomers > 0)
+                    Text(
+                      '${provider.allCustomers.length} / ${provider.totalCustomers}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF617589),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          // Customer tiles
+          SliverList.builder(
+            itemCount: provider.allCustomers.length +
+                (provider.isLoadingMore ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index >= provider.allCustomers.length) {
+                // Loading indicator at the bottom
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: _kBrand),
+                    ),
+                  ),
+                );
+              }
+              return _CustomerTile(
+                customer: provider.allCustomers[index],
+                onTap: () => _viewCustomer(provider.allCustomers[index]),
+              );
+            },
+          ),
+
+          // Bottom padding
+          const SliverToBoxAdapter(child: SizedBox(height: 80)),
+        ],
+      ),
+    );
+  }
+
+  // ─── SEARCH RESULTS ───────────────────────────────────────────────────────
+
+  Widget _buildSearchResults(GoToProvider provider) {
+    if (provider.isSearching) {
+      return const Center(
+        child: CircularProgressIndicator(color: _kBrand),
+      );
+    }
+
+    if (provider.error != null) {
+      return _buildErrorBanner(provider.error!);
+    }
+
+    if (provider.searchResults.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, size: 56, color: Colors.grey.shade300),
+            const SizedBox(height: 12),
+            const Text('No customers found',
+                style: TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(
+              'Try a different search term',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Recent Searches',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.015 * 18,
-                ),
-              ),
-              if (provider.recentSearches.isNotEmpty)
-                TextButton(
-                  onPressed: () => provider.clearRecentSearches(),
-                  child: const Text(
-                    'Clear',
-                    style: TextStyle(
-                      color: Color(0xFF2B8CEE),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-            ],
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+          child: Text(
+            '${provider.searchResults.length} result${provider.searchResults.length == 1 ? '' : 's'}',
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF617589),
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
-        ...recentToShow.map((customer) => _recentSearchItem(customer)),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 80),
+            itemCount: provider.searchResults.length,
+            itemBuilder: (_, index) => _CustomerTile(
+              customer: provider.searchResults[index],
+              onTap: () => _viewCustomer(provider.searchResults[index]),
+              showAddress: true,
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _recentSearchItem(CustomerModel customer) {
+  // ─── RECENT SEARCHES SECTION ──────────────────────────────────────────────
+
+  Widget _buildRecentSearchesSection(GoToProvider provider) {
+    final recents = provider.recentSearches.take(3).toList();
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Material(
-          color: Colors.white,
-          child: InkWell(
-            onTap: () => _viewCustomerDetails(customer),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+          child: Row(
+            children: [
+              const Text(
+                'RECENT',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF617589),
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: provider.clearRecentSearches,
+                child: const Text(
+                  'Clear',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _kBrand,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        ...recents.map(
+          (c) => _CustomerTile(
+            customer: c,
+            onTap: () => _viewCustomer(c),
+            showHistoryIcon: true,
+          ),
+        ),
+        const Divider(height: 1, color: Color(0xFFEEF0F2)),
+      ],
+    );
+  }
+
+  // ─── LOADING SHIMMER ──────────────────────────────────────────────────────
+
+  Widget _buildLoadingShimmer() {
+    return ListView.builder(
+      itemCount: 12,
+      itemBuilder: (_, _) => const _ShimmerTile(),
+    );
+  }
+
+  // ─── ERROR / EMPTY STATES ─────────────────────────────────────────────────
+
+  Widget _buildErrorState(GoToProvider provider) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.wifi_off_rounded, size: 56, color: Colors.grey.shade300),
+          const SizedBox(height: 12),
+          const Text('Could not load customers',
+              style:
+                  TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          Text(provider.error ?? '',
+              style:
+                  TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Try Again'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _kBrand,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorBanner(String error) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red.shade700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(error,
+                  style: TextStyle(color: Colors.red.shade700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.people_outline, size: 56, color: Colors.grey),
+          SizedBox(height: 12),
+          Text('No customers found',
+              style:
+                  TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Customer Tile (shared between all-list & search results) ─────────────────
+
+class _CustomerTile extends StatelessWidget {
+  const _CustomerTile({
+    required this.customer,
+    required this.onTap,
+    this.showAddress = false,
+    this.showHistoryIcon = false,
+  });
+
+  final CustomerModel customer;
+  final VoidCallback onTap;
+  final bool showAddress;
+  final bool showHistoryIcon;
+
+  static const _kBrand = Color(0xFF2B8CEE);
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 11),
               child: Row(
                 children: [
+                  // Avatar
                   Container(
-                    width: 48,
-                    height: 48,
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF2B8CEE).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      color: showHistoryIcon
+                          ? Colors.grey.shade100
+                          : _kBrand.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(
-                      Icons.history,
-                      color: Color(0xFF2B8CEE),
-                      size: 24,
+                    child: Icon(
+                      showHistoryIcon
+                          ? Icons.history
+                          : Icons.storefront_outlined,
+                      color: showHistoryIcon
+                          ? Colors.grey.shade500
+                          : _kBrand,
+                      size: 20,
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
+                  // Text block
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -225,8 +516,9 @@ class _GoToScreenState extends State<GoToScreen> {
                         Text(
                           customer.shopName,
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
+                            color: Color(0xFF111418),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -235,233 +527,123 @@ class _GoToScreenState extends State<GoToScreen> {
                         Text(
                           customer.name,
                           style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 12,
                             color: Color(0xFF617589),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        if (showAddress && customer.shopAddress.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            customer.shopAddress,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF617589),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // ✅ Show arrow icon instead of buttons
-                  const Icon(
-                    Icons.arrow_forward_ios,
-                    size: 16,
-                    color: Color(0xFF617589),
-                  ),
+                  // GPS indicator
+                  if (customer.location?.isValid ?? false)
+                    Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.location_on,
+                          size: 14, color: Colors.green.shade600),
+                    )
+                  else
+                    const Icon(Icons.chevron_right,
+                        size: 18, color: Color(0xFF617589)),
                 ],
               ),
             ),
-          ),
+            const Divider(
+                height: 1,
+                indent: 70,
+                color: Color(0xFFF0F2F4)),
+          ],
         ),
-        Container(
-          height: 1,
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          color: const Color(0xFFDBE0E6),
-        ),
-      ],
+      ),
     );
   }
+}
 
-  Widget _buildSearchResults(GoToProvider provider) {
-    if (provider.isSearching) {
-      return const Padding(
-        padding: EdgeInsets.all(40),
-        child: Center(
-          child: CircularProgressIndicator(
-            color: Color(0xFF2B8CEE),
-          ),
-        ),
-      );
-    }
+// ─── Shimmer tile ─────────────────────────────────────────────────────────────
 
-    if (provider.error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(16),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.red.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.red.shade200),
-          ),
+class _ShimmerTile extends StatefulWidget {
+  const _ShimmerTile();
+
+  @override
+  State<_ShimmerTile> createState() => _ShimmerTileState();
+}
+
+class _ShimmerTileState extends State<_ShimmerTile>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 900))
+      ..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, _) {
+        final c = Color.lerp(
+            Colors.grey.shade200, Colors.grey.shade100, _anim.value)!;
+        return Container(
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              Icon(Icons.error_outline, color: Colors.red.shade700),
+              Container(
+                width: 42, height: 42,
+                decoration: BoxDecoration(
+                    color: c, borderRadius: BorderRadius.circular(10)),
+              ),
               const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  provider.error!,
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                      height: 13, width: 140,
+                      decoration: BoxDecoration(
+                          color: c,
+                          borderRadius: BorderRadius.circular(6))),
+                  const SizedBox(height: 6),
+                  Container(
+                      height: 10, width: 90,
+                      decoration: BoxDecoration(
+                          color: c,
+                          borderRadius: BorderRadius.circular(5))),
+                ],
               ),
             ],
           ),
-        ),
-      );
-    }
-
-    if (provider.searchResults.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(40),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(
-                Icons.search_off,
-                size: 72,
-                color: Colors.grey.shade300,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'No customers found',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Try a different search term',
-                style: TextStyle(
-                  color: Color(0xFF617589),
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Text(
-            'Found ${provider.searchResults.length} ${provider.searchResults.length == 1 ? 'customer' : 'customers'}',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF617589),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            children: provider.searchResults
-                .map((customer) => _searchResultCard(customer))
-                .toList(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ✅ FIXED: Simplified card without Call/Navigate buttons
-  Widget _searchResultCard(CustomerModel customer) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFDBE0E6)),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _viewCustomerDetails(customer),
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2B8CEE).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.storefront,
-                    color: Color(0xFF2B8CEE),
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        customer.shopName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        customer.name,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF617589),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        customer.shopAddress,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF617589),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (customer.location?.isValid ?? false) ...[
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.location_on,
-                              size: 14,
-                              color: Colors.green.shade600,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Location available',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.green.shade600,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.arrow_forward_ios,
-                  size: 16,
-                  color: Color(0xFF617589),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

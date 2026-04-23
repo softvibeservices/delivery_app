@@ -2,10 +2,11 @@
 // Wires flutter_local_notifications to the settings toggles
 // already saved by AppSettingsScreen in SharedPreferences.
 // FCMService calls this for foreground message display.
-// BackgroundLocationService calls this for new-order polling alerts.
+// Notification taps are forwarded to NavigationService.
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'navigation_service.dart';
 import 'storage_service.dart';
 
 class NotificationService {
@@ -100,8 +101,10 @@ class NotificationService {
 
   void _onNotificationTap(NotificationResponse response) {
     debugPrint('🔔 Notification tapped: payload=${response.payload}');
-    // payload is the orderId string.
-    // Deep-link navigation will be wired in FCMService.
+    // payload is the orderId string set in showNewOrderNotification.
+    // Forward to NavigationService — the orders page listener will
+    // call fetchOrders() and the new order appears automatically.
+    NavigationService.instance.handleNotificationTap(response.payload);
   }
 
   // ─── PUBLIC SHOW METHODS ──────────────────────────────────────────────────
@@ -193,7 +196,7 @@ class NotificationService {
       priority: isOrderChannel ? Priority.high : Priority.defaultPriority,
       playSound: sound,
       enableVibration: vibration,
-      icon: '@mipmap/ic_launcher',
+      icon: '@drawable/ic_notification',
     );
 
     const darwinDetails = DarwinNotificationDetails(

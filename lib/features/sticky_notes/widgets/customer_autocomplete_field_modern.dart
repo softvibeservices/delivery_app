@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/sticky_note_model.dart';
 import '../providers/sticky_note_form_provider.dart';
 
 class CustomerAutocompleteFieldModern extends StatefulWidget {
@@ -18,10 +19,14 @@ class _CustomerAutocompleteFieldModernState
   final FocusNode _focusNode = FocusNode();
   bool _showSuggestions = false;
 
+  static const _kBrand = Color(0xFF2B8CEE);
+  static const _kBorder = Color(0xFFDBE0E6);
+
   @override
   void initState() {
     super.initState();
-    
+
+    // Restore text if customer already selected (edit mode).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<StickyNoteFormProvider>();
       if (provider.selectedCustomer != null) {
@@ -30,8 +35,11 @@ class _CustomerAutocompleteFieldModernState
     });
 
     _focusNode.addListener(() {
-      if (!_focusNode.hasFocus) {
-        setState(() => _showSuggestions = false);
+      if (!_focusNode.hasFocus && mounted) {
+        // Small delay so taps on suggestion items register before hide.
+        Future.delayed(const Duration(milliseconds: 150), () {
+          if (mounted) setState(() => _showSuggestions = false);
+        });
       }
     });
   }
@@ -47,236 +55,258 @@ class _CustomerAutocompleteFieldModernState
   Widget build(BuildContext context) {
     return Consumer<StickyNoteFormProvider>(
       builder: (context, provider, _) {
+        // If a customer is selected, show the confirmation card instead.
+        if (provider.selectedCustomer != null) {
+          return _SelectedCustomerCard(
+            customer: provider.selectedCustomer!,
+            onClear: () {
+              provider.clearCustomer();
+              _controller.clear();
+              setState(() => _showSuggestions = false);
+            },
+          );
+        }
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Search Field
-            Container(
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: _focusNode.hasFocus
-                      ? const Color(0xFF2B8CEE).withValues(alpha: 0.5)
-                      : const Color(0xFFDBE0E6),
-                ),
-              ),
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                style: const TextStyle(fontSize: 16),
-                decoration: InputDecoration(
-                  hintText: 'Search customer name...',
-                  hintStyle: const TextStyle(
-                    color: Color(0xFF617589),
-                    fontSize: 16,
-                  ),
-                  prefixIcon: const Icon(
-                    Icons.search,
-                    color: Color(0xFF617589),
-                    size: 24,
-                  ),
-                  suffixIcon: _controller.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: () {
-                            _controller.clear();
-                            provider.clearCustomer();
-                            setState(() => _showSuggestions = false);
-                          },
-                          color: const Color(0xFF617589),
-                        )
-                      : (provider.isSearchingCustomers
-                          ? const Padding(
-                              padding: EdgeInsets.all(14),
-                              child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Color(0xFF2B8CEE),
-                                ),
-                              ),
-                            )
-                          : null),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
-                  ),
-                ),
-                onChanged: (value) {
-                  provider.searchCustomers(value);
-                  setState(() {
-                    _showSuggestions = value.isNotEmpty;
-                  });
-                },
-                onTap: () {
-                  if (_controller.text.isNotEmpty) {
-                    setState(() => _showSuggestions = true);
-                  }
-                },
-              ),
-            ),
+            // ── Search input ────────────────────────────────────────────
+            _buildSearchField(provider),
 
-            // Suggestions Dropdown
-            if (_showSuggestions && provider.customerSuggestions.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(top: 4),
-                constraints: const BoxConstraints(maxHeight: 240),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFDBE0E6)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  padding: EdgeInsets.zero,
-                  itemCount: provider.customerSuggestions.length,
-                  separatorBuilder: (context, index) => const Divider(
-                    height: 1,
-                    color: Color(0xFFDBE0E6),
-                  ),
-                  itemBuilder: (context, index) {
-                    final customer = provider.customerSuggestions[index];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      leading: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF3C7),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.store,
-                          color: Color(0xFFF59E0B),
-                          size: 20,
-                        ),
-                      ),
-                      title: Text(
-                        customer.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 2),
-                          Text(
-                            customer.shopName,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF617589),
-                            ),
-                          ),
-                          if (customer.primaryContact != null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              customer.primaryContact!,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF617589),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      onTap: () {
-                        provider.selectCustomer(customer);
-                        _controller.text = customer.displayName;
-                        setState(() => _showSuggestions = false);
-                        _focusNode.unfocus();
-                      },
-                    );
-                  },
+            // ── Min-chars hint ──────────────────────────────────────────
+            if (_controller.text.isNotEmpty &&
+                _controller.text.trim().length < 2)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 4),
+                child: Text(
+                  'Type at least 2 characters to search',
+                  style: TextStyle(
+                      fontSize: 11, color: Colors.grey.shade500),
                 ),
               ),
 
-            // Selected Customer Card
-            if (provider.selectedCustomer != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFDCFCE7),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF10B981)),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.check_circle,
-                        color: Color(0xFF10B981),
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            provider.selectedCustomer!.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                          Text(
-                            provider.selectedCustomer!.shopName,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF059669),
-                            ),
-                          ),
-                          if (provider.selectedCustomer!.primaryContact != null)
-                            Text(
-                              provider.selectedCustomer!.primaryContact!,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF059669),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 20),
-                      onPressed: () {
-                        provider.clearCustomer();
-                        _controller.clear();
-                        setState(() => _showSuggestions = false);
-                      },
-                      color: const Color(0xFF059669),
-                    ),
-                  ],
+            // ── Loading indicator ───────────────────────────────────────
+            if (provider.isSearchingCustomers)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: LinearProgressIndicator(
+                  minHeight: 2,
+                  backgroundColor: Color(0xFFEEF0F2),
+                  color: _kBrand,
                 ),
               ),
-            ],
+
+            // ── Suggestions dropdown ────────────────────────────────────
+            if (_showSuggestions &&
+                provider.customerSuggestions.isNotEmpty)
+              _buildSuggestions(provider),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildSearchField(StickyNoteFormProvider provider) {
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _focusNode.hasFocus
+              ? _kBrand.withValues(alpha: 0.6)
+              : _kBorder,
+          width: _focusNode.hasFocus ? 1.5 : 1,
+        ),
+      ),
+      child: TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        style: const TextStyle(fontSize: 14),
+        decoration: InputDecoration(
+          hintText: 'Search customer name or shop...',
+          hintStyle: const TextStyle(
+              color: Color(0xFF617589), fontSize: 13),
+          prefixIcon: const Icon(Icons.search,
+              color: Color(0xFF617589), size: 18),
+          suffixIcon: _controller.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear,
+                      size: 16, color: Color(0xFF617589)),
+                  onPressed: () {
+                    _controller.clear();
+                    provider.clearCustomer();
+                    setState(() => _showSuggestions = false);
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+        ),
+        onChanged: (value) {
+          provider.searchCustomers(value);
+          setState(() {
+            _showSuggestions = value.trim().length >= 2;
+          });
+        },
+        onTap: () {
+          if (_controller.text.trim().length >= 2) {
+            setState(() => _showSuggestions = true);
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildSuggestions(StickyNoteFormProvider provider) {
+    return Container(
+      margin: const EdgeInsets.only(top: 3),
+      constraints: const BoxConstraints(maxHeight: 200),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _kBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.07),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        padding: EdgeInsets.zero,
+        itemCount: provider.customerSuggestions.length,
+        separatorBuilder: (_, _) =>
+            const Divider(height: 1, color: _kBorder),
+        itemBuilder: (_, index) {
+          final customer = provider.customerSuggestions[index];
+          return InkWell(
+            onTap: () {
+              provider.selectCustomer(customer);
+              _controller.text = customer.displayName;
+              setState(() => _showSuggestions = false);
+              _focusNode.unfocus();
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.store,
+                        color: Color(0xFFF59E0B), size: 16),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          customer.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          customer.shopName,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF617589),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (customer.primaryContact != null)
+                    Text(
+                      customer.primaryContact!,
+                      style: const TextStyle(
+                          fontSize: 11, color: Color(0xFF617589)),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─── Selected customer confirmation card ──────────────────────────────────────
+
+class _SelectedCustomerCard extends StatelessWidget {
+  const _SelectedCustomerCard({
+    required this.customer,
+    required this.onClear,
+  });
+
+  final CustomerSuggestion customer;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFDCFCE7),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF10B981)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.check_circle,
+                color: Color(0xFF10B981), size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  customer.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                Text(
+                  customer.shopName,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF059669),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: onClear,
+            color: const Color(0xFF059669),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
     );
   }
 }

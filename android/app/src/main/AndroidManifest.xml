@@ -38,7 +38,7 @@
     </queries>
 
     <application
-        android:label="delivery_app"
+        android:label="Scoop &amp; Go"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

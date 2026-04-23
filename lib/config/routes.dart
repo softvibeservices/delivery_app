@@ -36,41 +36,69 @@ class AppRoutes {
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
-      // Auth
+      // ── Auth ──────────────────────────────────────────────────────────────
       case splash:
-        return _route(const SplashScreen());
+        return _slide(const SplashScreen());
       case welcome:
-        return _route(const HomeScreen());
+        return _slide(const HomeScreen());
       case login:
-        return _route(const LoginScreen());
+        return _slide(const LoginScreen());
       case otp:
-        return _route(const OtpScreen());
+        return _slide(const OtpScreen());
       case register:
-        return _route(const RegisterScreen());
+        return _slide(const RegisterScreen());
       case pending:
-        return _route(const PendingApprovalScreen());
+        return _slide(const PendingApprovalScreen());
 
-      // Main app shell
+      // ── Main app shell ─────────────────────────────────────────────────────
       case main:
-        return _route(const MainShell());
+        return _slide(const MainShell());
 
-      // Order details is pushed on top of the shell, not inside it.
+      // ── Order details — pushed on top of the shell, not inside it ──────────
       case orderDetails:
         final order = settings.arguments as OrderModel;
-        return _route(OrderDetailsScreen(order: order));
+        return _slideUp(OrderDetailsScreen(order: order));
 
+      // ── Fallback ───────────────────────────────────────────────────────────
+      // Previously this showed a "route not found" scaffold which caused the
+      // Android back button to crash.  Now we redirect to the main shell so
+      // the user never ends up on a broken screen.
+      //
+      // Unknown route names can arrive from:
+      //   • Android system back button events leaking through PopScope
+      //   • Deep links with unrecognised paths
+      //   • Hot-restart artefacts in debug mode
       default:
-        return _route(
-          Scaffold(
-            body: Center(
-              child: Text('Route "${settings.name}" not found'),
-            ),
-          ),
+        debugPrint(
+          '⚠️ AppRoutes: unknown route "${settings.name}" — redirecting to /main',
         );
+        return _slide(const MainShell());
     }
   }
 
-  static MaterialPageRoute<dynamic> _route(Widget page) {
+  // ─── Route builders ───────────────────────────────────────────────────────
+
+  /// Standard horizontal slide (used for all full-screen auth flows).
+  static MaterialPageRoute<dynamic> _slide(Widget page) {
     return MaterialPageRoute(builder: (_) => page);
+  }
+
+  /// Bottom-sheet style slide-up for overlay screens (order details, etc.).
+  static PageRouteBuilder<dynamic> _slideUp(Widget page) {
+    return PageRouteBuilder(
+      pageBuilder: (context, _, a) => page,
+      transitionDuration: const Duration(milliseconds: 280),
+      reverseTransitionDuration: const Duration(milliseconds: 250),
+      transitionsBuilder: (_, animation, a, child) {
+        final tween = Tween(
+          begin: const Offset(0, 1),
+          end: Offset.zero,
+        ).chain(CurveTween(curve: Curves.easeOutCubic));
+        return SlideTransition(
+          position: animation.drive(tween),
+          child: child,
+        );
+      },
+    );
   }
 }

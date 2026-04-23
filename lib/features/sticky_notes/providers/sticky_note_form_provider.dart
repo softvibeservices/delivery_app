@@ -48,13 +48,21 @@ class StickyNoteFormProvider extends ChangeNotifier {
   List<ProductRow> _productRows = [];
   List<ProductRow> get productRows => _productRows;
 
-  Map<int, List<ProductSuggestion>> _productSuggestionsCache = {};
+  // ── Product search cache ───────────────────────────────────────────────────
+  // Keyed by QUERY STRING (lowercased), not row index.
+  // This means if rows 1 and 3 both type "vanilla", the second lookup is
+  // instantaneous — zero network round-trip.
+  final Map<String, List<ProductSuggestion>> _productQueryCache = {};
+
+  // Per-row suggestion lists: what each row is currently showing.
+  final Map<int, List<ProductSuggestion>> _rowSuggestions = {};
 
   bool _isSearchingProducts = false;
   bool get isSearchingProducts => _isSearchingProducts;
 
   Timer? _customerSearchTimer;
   Timer? _productSearchTimer;
+
   // ignore: prefer_final_fields
   bool _isSaving = false;
   bool get isSaving => _isSaving;
@@ -64,8 +72,10 @@ class StickyNoteFormProvider extends ChangeNotifier {
 
   // ─── INIT ─────────────────────────────────────────────────────────────────
 
+  static const int _defaultRowCount = 3;
+
   void _initializeRows() {
-    _productRows = List.generate(5, (_) => ProductRow());
+    _productRows = List.generate(_defaultRowCount, (_) => ProductRow());
   }
 
   void initializeForEdit(StickyNoteModel note) {
@@ -90,18 +100,21 @@ class StickyNoteFormProvider extends ChangeNotifier {
         )
         .toList();
 
-    while (_productRows.length < 5) {
+    // Keep at least _defaultRowCount rows so there's always space to add more.
+    while (_productRows.length < _defaultRowCount) {
       _productRows.add(ProductRow());
     }
 
-    _productSuggestionsCache.clear();
+    _rowSuggestions.clear();
     notifyListeners();
   }
 
   void resetForm() {
     _selectedCustomer = null;
     _customerSuggestions = [];
-    _productSuggestionsCache = {};
+    _rowSuggestions.clear();
+    // Don't clear _productQueryCache — it's session-scoped and speeds up
+    // subsequent note creation within the same session.
     _initializeRows();
     _error = null;
     _customerSearchTimer?.cancel();
@@ -110,9 +123,13 @@ class StickyNoteFormProvider extends ChangeNotifier {
   }
 
   // ─── CUSTOMER SEARCH ──────────────────────────────────────────────────────
+  //
+  // Debounced to 350 ms.
+  // Minimum 2 characters before hitting the network — single-char queries
+  // return too many results and feel laggy.
 
-  Future<void> searchCustomers(String query) async {
-    if (query.trim().isEmpty) {
+  void searchCustomers(String query) {
+    if (query.trim().length < 2) {
       _customerSuggestions = [];
       notifyListeners();
       return;
@@ -120,8 +137,8 @@ class StickyNoteFormProvider extends ChangeNotifier {
 
     _customerSearchTimer?.cancel();
     _customerSearchTimer = Timer(
-      const Duration(milliseconds: 500),
-      () => _performCustomerSearch(query),
+      const Duration(milliseconds: 350),
+      () => _performCustomerSearch(query.trim()),
     );
   }
 
@@ -138,11 +155,11 @@ class StickyNoteFormProvider extends ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
-        final customers = response.data['customers'] as List?;
+        final customers = response.data['customers'] as List? ?? [];
         _customerSuggestions = customers
-                ?.map((json) => CustomerSuggestion.fromJson(json))
-                .toList() ??
-            [];
+            .map((json) =>
+                CustomerSuggestion.fromJson(json as Map<String, dynamic>))
+            .toList();
         debugPrint('✅ Found ${_customerSuggestions.length} customers');
       }
     } on DioException catch (e) {
@@ -162,36 +179,56 @@ class StickyNoteFormProvider extends ChangeNotifier {
 
   void clearCustomer() {
     _selectedCustomer = null;
+    _customerSuggestions = [];
     notifyListeners();
   }
 
   // ─── PRODUCT SEARCH ───────────────────────────────────────────────────────
+  //
+  // Debounced to 350 ms.
+  // Minimum 2 characters.
+  // CACHE HIT: if the same query was already searched in this form session,
+  // return the cached results immediately without any network call.
 
   Future<List<ProductSuggestion>> searchProducts(
     int rowIndex,
     String query,
   ) async {
-    if (query.trim().isEmpty) {
-      _productSuggestionsCache[rowIndex] = [];
+    final trimmed = query.trim();
+
+    if (trimmed.length < 2) {
+      _rowSuggestions[rowIndex] = [];
       notifyListeners();
       return [];
     }
 
+    final cacheKey = trimmed.toLowerCase();
+
+    // ── Cache hit: return instantly ─────────────────────────────────────────
+    if (_productQueryCache.containsKey(cacheKey)) {
+      final cached = _productQueryCache[cacheKey]!;
+      _rowSuggestions[rowIndex] = cached;
+      notifyListeners();
+      debugPrint('⚡ Product cache hit for "$cacheKey" (${cached.length} results)');
+      return cached;
+    }
+
+    // ── Cache miss: debounce then fetch ─────────────────────────────────────
     _productSearchTimer?.cancel();
     final completer = Completer<List<ProductSuggestion>>();
 
     _productSearchTimer = Timer(
-      const Duration(milliseconds: 500),
+      const Duration(milliseconds: 350),
       () async {
-        final results = await _performProductSearch(rowIndex, query);
-        completer.complete(results);
+        final results = await _fetchProducts(rowIndex, cacheKey);
+        if (!completer.isCompleted) completer.complete(results);
       },
     );
 
     return completer.future;
   }
 
-  Future<List<ProductSuggestion>> _performProductSearch(
+  Future<List<ProductSuggestion>> _fetchProducts(
     int rowIndex,
     String query,
   ) async {
@@ -199,7 +236,7 @@ class StickyNoteFormProvider extends ChangeNotifier {
       _isSearchingProducts = true;
       notifyListeners();
 
-      debugPrint('🔍 Searching products for row $rowIndex: $query');
+      debugPrint('🔍 Fetching products: "$query"');
 
       final response = await _apiService.dio.get(
         ApiEndpoints.searchProducts,
@@ -207,20 +244,25 @@ class StickyNoteFormProvider extends ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
-        final products = response.data['products'] as List?;
-        if (products != null) {
-          final suggestions = products
-              .map((json) => ProductSuggestion.fromJson(json))
-              .toList();
-          _productSuggestionsCache[rowIndex] = suggestions;
-          debugPrint('✅ Found ${suggestions.length} products for row $rowIndex');
-          notifyListeners();
-          return suggestions;
-        }
+        final products = response.data['products'] as List? ?? [];
+        final suggestions = products
+            .map((json) =>
+                ProductSuggestion.fromJson(json as Map<String, dynamic>))
+            .toList();
+
+        // Store in query-level cache for future rows.
+        _productQueryCache[query] = suggestions;
+        _rowSuggestions[rowIndex] = suggestions;
+
+        debugPrint(
+          '✅ Fetched ${suggestions.length} products for "$query" — cached',
+        );
+        notifyListeners();
+        return suggestions;
       }
       return [];
     } on DioException catch (e) {
-      debugPrint('❌ Product search error: ${e.type} — ${e.message}');
+      debugPrint('❌ Product fetch error: ${e.type} — ${e.message}');
       return [];
     } finally {
       _isSearchingProducts = false;
@@ -229,7 +271,7 @@ class StickyNoteFormProvider extends ChangeNotifier {
   }
 
   List<ProductSuggestion> getProductSuggestions(int rowIndex) {
-    return _productSuggestionsCache[rowIndex] ?? [];
+    return _rowSuggestions[rowIndex] ?? [];
   }
 
   // ─── PRODUCT ROWS ─────────────────────────────────────────────────────────
@@ -249,11 +291,18 @@ class StickyNoteFormProvider extends ChangeNotifier {
         quantity: _productRows[rowIndex].quantity,
         unit: product.unit,
       );
-      _productSuggestionsCache[rowIndex] = [];
+      _rowSuggestions[rowIndex] = [];
       notifyListeners();
     }
   }
 
+  /// Add a single empty row.
+  void addRow() {
+    _productRows.add(ProductRow());
+    notifyListeners();
+  }
+
+  /// Legacy: add 3 rows at once (kept for backwards compatibility).
   void addMoreRows() {
     _productRows.addAll([ProductRow(), ProductRow(), ProductRow()]);
     notifyListeners();
@@ -262,23 +311,31 @@ class StickyNoteFormProvider extends ChangeNotifier {
   void removeProductRow(int index) {
     if (_productRows.length > 1) {
       _productRows.removeAt(index);
+      _rowSuggestions.remove(index);
+      // Re-index suggestions above the removed row.
+      final rebuilt = <int, List<ProductSuggestion>>{};
+      for (final entry in _rowSuggestions.entries) {
+        final k = entry.key > index ? entry.key - 1 : entry.key;
+        rebuilt[k] = entry.value;
+      }
+      _rowSuggestions
+        ..clear()
+        ..addAll(rebuilt);
       notifyListeners();
     }
   }
 
   // ─── COMPUTED ─────────────────────────────────────────────────────────────
 
-  int get totalQuantity {
-    return _productRows
-        .where((row) => row.isValid)
-        .fold(0, (sum, row) => sum + int.parse(row.quantity));
-  }
+  int get totalQuantity => _productRows
+      .where((r) => r.isValid)
+      .fold(0, (sum, r) => sum + int.parse(r.quantity));
 
-  int get totalBoxes {
-    return _productRows
-        .where((row) => row.isValid && row.unit == 'box')
-        .fold(0, (sum, row) => sum + int.parse(row.quantity));
-  }
+  int get totalBoxes => _productRows
+      .where((r) => r.isValid && r.unit == 'box')
+      .fold(0, (sum, r) => sum + int.parse(r.quantity));
+
+  int get validRowCount => _productRows.where((r) => r.isValid).length;
 
   bool isFormValid() {
     if (_selectedCustomer == null) {
@@ -287,9 +344,8 @@ class StickyNoteFormProvider extends ChangeNotifier {
       return false;
     }
 
-    final validProducts = _productRows.where((row) => row.isValid).toList();
-    if (validProducts.isEmpty) {
-      _error = 'Please add at least one product';
+    if (validRowCount == 0) {
+      _error = 'Please add at least one product with a quantity';
       notifyListeners();
       return false;
     }
@@ -299,7 +355,7 @@ class StickyNoteFormProvider extends ChangeNotifier {
   }
 
   StickyNoteModel buildStickyNote({String? existingId}) {
-    final validRows = _productRows.where((row) => row.isValid).toList();
+    final validRows = _productRows.where((r) => r.isValid).toList();
     return StickyNoteModel(
       id: existingId ?? '',
       userId: '',
@@ -308,11 +364,11 @@ class StickyNoteFormProvider extends ChangeNotifier {
       shopName: _selectedCustomer!.shopName,
       items: validRows
           .map(
-            (row) => StickyNoteItem(
-              productId: row.productId,
-              productName: row.productName,
-              quantity: int.parse(row.quantity),
-              unit: row.unit,
+            (r) => StickyNoteItem(
+              productId: r.productId,
+              productName: r.productName,
+              quantity: int.parse(r.quantity),
+              unit: r.unit,
             ),
           )
           .toList(),

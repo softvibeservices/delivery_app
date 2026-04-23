@@ -25,48 +25,44 @@ class StickyNoteFormScreen extends StatefulWidget {
 }
 
 class _StickyNoteFormScreenState extends State<StickyNoteFormScreen> {
-  late StickyNoteFormProvider formProvider;
+  static const _kBrand = Color(0xFF2B8CEE);
+  static const _kBorder = Color(0xFFDBE0E6);
+
+  late final StickyNoteFormProvider _formProvider;
   bool _isSaving = false;
   bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
-    formProvider = Provider.of<StickyNoteFormProvider>(context, listen: false);
-    
-    debugPrint('🔧 Form screen init - Mode: ${widget.mode}');
-    
+    _formProvider =
+        Provider.of<StickyNoteFormProvider>(context, listen: false);
+
     if (widget.mode == FormMode.edit && widget.existingNote != null) {
-      debugPrint('📝 Initializing edit mode with note: ${widget.existingNote!.id}');
-      formProvider.initializeForEdit(widget.existingNote!);
-      _initialized = true;
+      _formProvider.initializeForEdit(widget.existingNote!);
     } else {
-      debugPrint('📝 Create mode - resetting form');
-      formProvider.resetForm();
-      _initialized = true;
+      _formProvider.resetForm();
     }
+    _initialized = true;
   }
 
   @override
   void dispose() {
-    debugPrint('🗑️ Disposing form screen');
     if (widget.mode == FormMode.create) {
-      formProvider.resetForm();
+      _formProvider.resetForm();
     }
     super.dispose();
   }
 
+  // ─── SAVE ─────────────────────────────────────────────────────────────────
+
   Future<void> _handleSave() async {
     if (_isSaving) return;
 
-    if (!formProvider.isFormValid()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(formProvider.error ?? 'Please fill all required fields'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
+    if (!_formProvider.isFormValid()) {
+      _showSnack(
+        _formProvider.error ?? 'Please fill all required fields',
+        isError: true,
       );
       return;
     }
@@ -75,304 +71,308 @@ class _StickyNoteFormScreenState extends State<StickyNoteFormScreen> {
 
     try {
       final notesProvider = context.read<StickyNotesProvider>();
-      final note = formProvider.buildStickyNote(
+      final note = _formProvider.buildStickyNote(
         existingId: widget.existingNote?.id,
       );
 
-      bool success;
-      if (widget.mode == FormMode.create) {
-        debugPrint('📝 Creating new sticky note');
-        success = await notesProvider.createStickyNote(note);
-      } else {
-        debugPrint('📝 Updating sticky note: ${widget.existingNote!.id}');
-        success = await notesProvider.updateStickyNote(
-          widget.existingNote!.id,
-          note,
-        );
-      }
+      final success = widget.mode == FormMode.create
+          ? await notesProvider.createStickyNote(note)
+          : await notesProvider.updateStickyNote(widget.existingNote!.id, note);
 
-      if (mounted) {
-        if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                widget.mode == FormMode.create
-                    ? 'Sticky note created successfully'
-                    : 'Sticky note updated successfully',
-              ),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-          );
-          Navigator.pop(context, true);
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to save sticky note'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      if (!mounted) return;
+
+      if (success) {
+        _showSnack(
+          widget.mode == FormMode.create
+              ? 'Sticky note created'
+              : 'Sticky note updated',
+        );
+        Navigator.pop(context, true);
+      } else {
+        _showSnack('Failed to save. Please try again.', isError: true);
       }
     } catch (e) {
-      debugPrint('❌ Save error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      if (mounted) _showSnack('Error: ${e.toString()}', isError: true);
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
+
+  void _showSnack(String msg, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  // ─── BUILD ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     if (!_initialized) {
       return const Scaffold(
-        backgroundColor: Color(0xFFF6F7F8),
-        body: Center(
-          child: CircularProgressIndicator(
-            color: Color(0xFF2B8CEE),
-          ),
-        ),
+        body: Center(child: CircularProgressIndicator(color: _kBrand)),
       );
     }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7F8),
-      appBar: AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        backgroundColor: Colors.white,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          widget.mode == FormMode.create ? 'New Sticky Note' : 'Edit Sticky Note',
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-            letterSpacing: -0.015 * 18,
-          ),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(
-            height: 1,
-            color: const Color(0xFFDBE0E6),
-          ),
-        ),
-      ),
-      body: Consumer<StickyNoteFormProvider>(
-        builder: (context, provider, _) {
-          debugPrint('🔄 Provider rebuild - Rows: ${provider.productRows.length}');
-          
-          return Column(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Customer Section
-                      const Text(
-                        'Customer',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: -0.015 * 18,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const CustomerAutocompleteFieldModern(),
-                      const SizedBox(height: 24),
-
-                      // Products Section
-                      const Text(
-                        'Add Products',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: -0.015 * 18,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Product Rows
-                      ...List.generate(
-                        provider.productRows.length,
-                        (index) {
-                          final row = provider.productRows[index];
-                          debugPrint('🎨 Rendering row $index: ${row.productName} (${row.quantity})');
-                          
-                          return ProductRowWidgetModern(
-                            key: ValueKey('product_row_$index'),
-                            rowIndex: index,
-                            row: row,
-                            onRemove: provider.productRows.length > 1
-                                ? () => provider.removeProductRow(index)
-                                : null,
-                          );
-                        },
-                      ),
-
-                      // Add More Rows Button
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: provider.addMoreRows,
-                        icon: const Icon(Icons.add, size: 20),
-                        label: const Text('Add 3 More Rows'),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 48),
-                          foregroundColor: const Color(0xFF2B8CEE),
-                          side: const BorderSide(color: Color(0xFFDBE0E6)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 100),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-      bottomSheet: Consumer<StickyNoteFormProvider>(
-        builder: (context, provider, _) {
-          return Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: const Border(
-                top: BorderSide(color: Color(0xFFDBE0E6)),
-              ),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: SafeArea(
+      appBar: _buildAppBar(),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Summary Row 1
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.inventory_2_outlined,
-                            size: 20,
-                            color: Colors.grey.shade600,
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Total Item Types',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF617589),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        '${provider.productRows.where((r) => r.isValid).length} Products',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  // Summary Row 2
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.calculate_outlined,
-                            size: 20,
-                            color: Colors.grey.shade600,
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Total Quantity',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF617589),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        '${provider.totalQuantity} Units',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF2B8CEE),
-                        ),
-                      ),
-                    ],
-                  ),
+                  // ── Customer section ────────────────────────────────────
+                  _sectionLabel('CUSTOMER'),
+                  const SizedBox(height: 8),
+                  const CustomerAutocompleteFieldModern(),
                   const SizedBox(height: 16),
-                  // Action Button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: FilledButton(
-                      onPressed: _isSaving ? null : _handleSave,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF2B8CEE),
-                        disabledBackgroundColor: Colors.grey.shade300,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 2,
-                      ),
-                      child: _isSaving
-                          ? const SizedBox(
-                              height: 24,
-                              width: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
+
+                  // ── Products section ────────────────────────────────────
+                  _sectionLabel('PRODUCTS'),
+                  const SizedBox(height: 8),
+
+                  Consumer<StickyNoteFormProvider>(
+                    builder: (_, provider, _) {
+                      return Column(
+                        children: [
+                          // Product rows
+                          ...List.generate(
+                            provider.productRows.length,
+                            (i) => ProductRowWidgetModern(
+                              key: ValueKey('row_$i'),
+                              rowIndex: i,
+                              totalRows: provider.productRows.length,
+                              row: provider.productRows[i],
+                              onRemove:
+                                  provider.productRows.length > 1
+                                      ? () => provider.removeProductRow(i)
+                                      : null,
+                            ),
+                          ),
+
+                          // ── Add row button ──────────────────────────────
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: provider.addRow,
+                                  icon: const Icon(Icons.add, size: 16),
+                                  label: const Text('Add Row'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: _kBrand,
+                                    side: const BorderSide(color: _kBorder),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 10),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(10)),
+                                    textStyle: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600),
+                                  ),
                                 ),
                               ),
-                            )
-                          : Text(
-                              widget.mode == FormMode.create
-                                  ? 'Create Sticky Note Order'
-                                  : 'Update Sticky Note',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                letterSpacing: 0.015 * 16,
+                              const SizedBox(width: 8),
+                              OutlinedButton(
+                                onPressed: provider.addMoreRows,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.grey.shade600,
+                                  side: const BorderSide(color: _kBorder),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 10, horizontal: 14),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius:
+                                          BorderRadius.circular(10)),
+                                ),
+                                child: const Text('+3',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600)),
                               ),
-                            ),
-                    ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
                   ),
+
+                  const SizedBox(height: 100),
                 ],
               ),
             ),
-          );
-        },
+          ),
+        ],
       ),
+      bottomSheet: _buildBottomSheet(),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      backgroundColor: Colors.white,
+      centerTitle: true,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+        onPressed: () => Navigator.pop(context),
+      ),
+      title: Text(
+        widget.mode == FormMode.create
+            ? 'New Sticky Note'
+            : 'Edit Sticky Note',
+        style: const TextStyle(
+            fontWeight: FontWeight.bold, fontSize: 17),
+      ),
+      bottom: const PreferredSize(
+        preferredSize: Size.fromHeight(1),
+        child: Divider(height: 1, color: _kBorder),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF617589),
+        letterSpacing: 0.8,
+      ),
+    );
+  }
+
+  // ─── BOTTOM SHEET ─────────────────────────────────────────────────────────
+
+  Widget _buildBottomSheet() {
+    return Consumer<StickyNoteFormProvider>(
+      builder: (_, provider, _) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: _kBorder)),
+          ),
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Summary row
+                Row(
+                  children: [
+                    _summaryChip(
+                      Icons.inventory_2_outlined,
+                      '${provider.validRowCount} types',
+                      Colors.blue,
+                    ),
+                    const SizedBox(width: 10),
+                    _summaryChip(
+                      Icons.calculate_outlined,
+                      '${provider.totalQuantity} units',
+                      _kBrand,
+                    ),
+                    const Spacer(),
+                    // Customer chip
+                    if (provider.selectedCustomer != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFDCFCE7),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: const Color(0xFF10B981)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.check_circle,
+                                color: Color(0xFF10B981), size: 12),
+                            const SizedBox(width: 4),
+                            Text(
+                              provider.selectedCustomer!.shopName,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF059669),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Save button
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton(
+                    onPressed: _isSaving ? null : _handleSave,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _kBrand,
+                      disabledBackgroundColor:
+                          Colors.grey.shade300,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: _isSaving
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(
+                                  Colors.white),
+                            ),
+                          )
+                        : Text(
+                            widget.mode == FormMode.create
+                                ? 'Create Note'
+                                : 'Update Note',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _summaryChip(IconData icon, String label, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color),
+        ),
+      ],
     );
   }
 }

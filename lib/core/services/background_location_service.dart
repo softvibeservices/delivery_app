@@ -1,19 +1,30 @@
 // lib/core/services/background_location_service.dart
+//
+// Changes from previous version:
+//  - Token now read from FlutterSecureStorage (same as StorageService) instead
+//    of SharedPreferences — fixes the 401 / 400 errors in the background isolate.
+//  - checkForNewOrders() removed entirely — FCM handles new-order notifications
+//    reliably. Keeping a polling fallback caused duplicate notifications and
+//    the 400 errors visible in logs.
+//  - Service now only does one thing in the background: send location updates.
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:dio/dio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/api_endpoints.dart';
 
-const _tokenKey = 'auth_token';
-const _lastOrderIdsKey = 'bg_last_order_ids';
+// Must match the key used by StorageService._tokenKey
+const _secureTokenKey = 'auth_token';
+
+// Secure storage config must match StorageService._secure exactly.
+const _secureStorage = FlutterSecureStorage(
+  aOptions: AndroidOptions(encryptedSharedPreferences: true),
+);
 
 @pragma('vm:entry-point')
 class BackgroundLocationService {
@@ -35,7 +46,7 @@ class BackgroundLocationService {
       ),
     );
 
-    debugPrint('✅ Background service initialised (silent + order polling)');
+    debugPrint('✅ Background service initialised (location tracking only)');
   }
 
   // ─── SERVICE ENTRY POINT (separate Dart isolate) ──────────────────────────
@@ -60,43 +71,6 @@ class BackgroundLocationService {
             },
           ),
         );
-
-    // ── Show a local notification from inside the background isolate ──────
-    // Declared BEFORE the functions that call it.
-    Future<void> showLocalNotification({
-      required int id,
-      required String title,
-      required String body,
-    }) async {
-      try {
-        final plugin = FlutterLocalNotificationsPlugin();
-
-        const androidInit =
-            AndroidInitializationSettings('@mipmap/ic_launcher');
-        await plugin.initialize(
-          const InitializationSettings(android: androidInit),
-        );
-
-        await plugin.show(
-          id,
-          title,
-          body,
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'new_orders',
-              'New Orders',
-              channelDescription:
-                  'Notifications for new delivery assignments',
-              importance: Importance.high,
-              priority: Priority.high,
-            ),
-          ),
-        );
-        debugPrint('🔔 [BG] Notification shown: $title');
-      } catch (e) {
-        debugPrint('❌ [BG] Failed to show notification: $e');
-      }
-    }
 
     // ── Location update ───────────────────────────────────────────────────
     Future<void> updateLocation(Dio dio) async {
@@ -146,72 +120,11 @@ class BackgroundLocationService {
       }
     }
 
-    // ── Order polling ─────────────────────────────────────────────────────
-    Future<void> checkForNewOrders(
-        SharedPreferences prefs, Dio dio) async {
-      try {
-        debugPrint('📦 [BG] Checking for new orders...');
-
-        final response = await dio.get(
-          ApiEndpoints.pendingOrders,
-          queryParameters: {'onlyUnsettled': 'true'},
-        );
-
-        if (response.statusCode != 200) return;
-
-        final List<dynamic> rawData = response.data is List
-            ? response.data as List<dynamic>
-            : (response.data['orders'] as List<dynamic>? ?? []);
-
-        final currentIds =
-            rawData.map((o) => o['_id']?.toString() ?? '').toSet();
-
-        final lastIdsJson = prefs.getString(_lastOrderIdsKey);
-        final Set<String> lastIds = lastIdsJson != null
-            ? Set<String>.from(json.decode(lastIdsJson) as List)
-            : {};
-
-        final newIds = currentIds.difference(lastIds);
-
-        if (newIds.isNotEmpty) {
-          debugPrint('🆕 [BG] ${newIds.length} new order(s) detected');
-
-          for (final orderId in newIds) {
-            final orderData = rawData.firstWhere(
-              (o) => o['_id']?.toString() == orderId,
-              orElse: () => <String, dynamic>{},
-            );
-
-            final customerName =
-                (orderData as Map<String, dynamic>)['customerName']
-                        ?.toString() ??
-                    'Customer';
-            final shopName =
-                orderData['shopName']?.toString() ?? '';
-
-            await showLocalNotification(
-              id: orderId.hashCode,
-              title: 'New Order Available',
-              body: shopName.isNotEmpty
-                  ? 'New order for $shopName — check the app'
-                  : 'New order for $customerName — check the app',
-            );
-          }
-        } else {
-          debugPrint('✅ [BG] No new orders');
-        }
-
-        await prefs.setString(
-            _lastOrderIdsKey, json.encode(currentIds.toList()));
-      } catch (e) {
-        debugPrint('❌ [BG] Order check error: $e');
-      }
-    }
-
-    // ── Run immediately on service start ──────────────────────────────────
+    // ── Single tick: read token → send location ───────────────────────────
     Future<void> tick() async {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString(_tokenKey);
+      // Read from FlutterSecureStorage — this is where StorageService stores
+      // the auth token. SharedPreferences does NOT have the token.
+      final token = await _secureStorage.read(key: _secureTokenKey);
 
       if (token == null || token.isEmpty) {
         debugPrint('❌ [BG] No token — stopping service');
@@ -221,17 +134,13 @@ class BackgroundLocationService {
       }
 
       final dio = buildDio(token);
-
-      await Future.wait([
-        updateLocation(dio),
-        checkForNewOrders(prefs, dio),
-      ]);
+      await updateLocation(dio);
     }
 
-    // Initial run.
+    // Initial run immediately on service start.
     await tick();
 
-    // Periodic timer every 30 seconds.
+    // Then every 30 seconds.
     locationTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => tick(),

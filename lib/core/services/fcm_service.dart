@@ -3,13 +3,14 @@
 //  - Device token registration + refresh
 //  - Foreground message display (via NotificationService)
 //  - Background message handler (top-level @pragma function)
-//  - Notification tap → navigation
+//  - Notification tap → NavigationService (triggers orders page refresh)
 
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'navigation_service.dart';
 import 'notification_service.dart';
 import 'storage_service.dart';
 import '../../config/api_endpoints.dart';
@@ -93,13 +94,19 @@ class FCMService {
     _foregroundSub = FirebaseMessaging.onMessage.listen(_handleForeground);
 
     // 6. Handle notification tap when app was in background (not killed).
+    //    The app is already running — NavigationService can signal immediately.
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageOpened);
 
-    // 7. Handle notification tap that launched the app from killed state.
+    // 7. Handle notification tap that launched the app from a killed state.
+    //    Delay slightly to let the widget tree mount before we signal navigation.
     final initialMessage = await _messaging.getInitialMessage();
     if (initialMessage != null) {
       debugPrint('🚀 App launched from FCM notification');
-      _handleMessageOpened(initialMessage);
+      // Small delay ensures the orders page listener is subscribed before
+      // the navigation signal fires.
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _handleMessageOpened(initialMessage);
+      });
     }
 
     _initialized = true;
@@ -247,6 +254,11 @@ class FCMService {
         customerName: message.data['customerName'] ?? 'Customer',
         shopName: message.data['shopName'] ?? '',
       );
+      // Also refresh the orders list immediately while app is open —
+      // the user sees the new order appear without tapping anything.
+      NavigationService.instance.handleNotificationTap(
+        message.data['orderId'],
+      );
     } else if (type == 'order_status_update') {
       NotificationService.instance.showOrderStatusNotification(
         orderId: message.data['orderId'] ?? '',
@@ -260,10 +272,11 @@ class FCMService {
     debugPrint(
       '👆 FCM notification tapped: type=${message.data['type']}',
     );
-    // Navigation from notification tap is intentionally kept simple here.
-    // The app opens to the main shell. For deep-linking to a specific order,
-    // store message.data['orderId'] in a pending navigation queue and consume
-    // it once your router is ready.
+    // Signal the orders page to refresh. The page listener calls fetchOrders()
+    // and the new order appears without requiring a manual pull-to-refresh.
+    NavigationService.instance.handleNotificationTap(
+      message.data['orderId'],
+    );
   }
 
   // ─── DISPOSE ──────────────────────────────────────────────────────────────
