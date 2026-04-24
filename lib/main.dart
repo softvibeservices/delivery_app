@@ -24,12 +24,25 @@ void main() async {
   );
 
   // 3. System UI chrome.
+  //
+  //    FIX: statusBarColor was previously Color(0xFFE0F2FE) — a solid coloured
+  //    band that visually clashed with the white AppBars on every screen.
+  //    Setting it to transparent lets the AppBar (or screen) background colour
+  //    show through seamlessly.
+  //
+  //    statusBarIconBrightness: Brightness.dark  →  dark icons on light bg
+  //    statusBarBrightness:     Brightness.light →  same on iOS
+  //
+  //    These values also override whatever the phone's dark-mode setting tries
+  //    to do to the status bar, because this app ships a light-only theme.
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
-      statusBarColor: Color(0xFFE0F2FE),
+      statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Color(0xFFE0F2FE),
+      statusBarBrightness: Brightness.light, // iOS equivalent
+      systemNavigationBarColor: Colors.white,
       systemNavigationBarIconBrightness: Brightness.dark,
+      systemNavigationBarDividerColor: Colors.transparent,
     ),
   );
 

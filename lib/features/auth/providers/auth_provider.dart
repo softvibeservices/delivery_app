@@ -56,10 +56,11 @@ class AuthProvider extends ChangeNotifier {
       }
     }
 
-    // Listen for global 401 force-logout signal from ApiService interceptor.
+    // Listen for global 401 / 403-account-gone force-logout signal from
+    // ApiService interceptor.
     _forceLogoutSub?.cancel();
     _forceLogoutSub = SessionService.instance.forceLogout.listen((_) async {
-      debugPrint('🔐 Force logout triggered by 401');
+      debugPrint('🔐 Force logout triggered by session service');
       await logout();
     });
 
@@ -67,6 +68,17 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ─── CHECK ACCOUNT STATUS ─────────────────────────────────────────────────
+  //
+  // Called on app cold-start (SplashScreen) AND on every app-resume
+  // (MainShell's WidgetsBindingObserver).
+  //
+  // FIX: Previously the catch block only printed errors.
+  //   • 404 → partner record no longer exists → force logout
+  //   • 403 → partner forbidden / account flagged → force logout
+  //   • backend status == 'deleted' → force logout
+  //   All three now call _forceLogoutDeleted() which clears storage,
+  //   stops tracking, and fires the SessionService event so MainShell
+  //   navigates the user to the welcome screen.
 
   Future<void> checkAccountStatus() async {
     try {
@@ -93,6 +105,15 @@ class AuthProvider extends ChangeNotifier {
       if (partner != null) {
         final backendStatus = partner['status'] as String;
         debugPrint('✅ Backend status: $backendStatus');
+
+        // A backend-side deletion may surface as status == 'deleted' rather
+        // than a 404 if the record is soft-deleted.
+        if (backendStatus == 'deleted' || backendStatus == 'deactivated') {
+          debugPrint('🔐 Account deleted/deactivated on backend — forcing logout');
+          await _forceLogoutDeleted();
+          return;
+        }
+
         await StorageService.savePartnerStatus(backendStatus);
 
         switch (backendStatus) {
@@ -109,12 +130,46 @@ class AuthProvider extends ChangeNotifier {
             _status = AuthStatus.unauthenticated;
         }
       }
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+
+      // ── FIX: 404 = partner record gone; 403 = account-level block ─────────
+      // Both mean the user should no longer have app access.
+      if (statusCode == 404 || statusCode == 403) {
+        debugPrint(
+          '🔐 checkAccountStatus: $statusCode — account not found / forbidden. Forcing logout.',
+        );
+        await _forceLogoutDeleted();
+        return;
+      }
+
+      // Any other network error (timeout, no internet) → don't logout;
+      // the user may just be offline.
+      debugPrint('⚠️ checkAccountStatus error (non-fatal): ${e.type} ${e.message}');
     } catch (e) {
-      debugPrint('❌ Error checking account status: $e');
+      debugPrint('⚠️ checkAccountStatus unexpected error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  // ─── FORCE LOGOUT (deleted account) ──────────────────────────────────────
+  //
+  // Shared helper used by checkAccountStatus() and potentially any future
+  // place that detects a non-recoverable account state.
+  // Fires SessionService so MainShell's listener triggers navigation.
+
+  Future<void> _forceLogoutDeleted() async {
+    await _stopLocationTracking();
+    await FCMService.instance.clearToken(sessionToken: await StorageService.getToken() ?? '');
+    await StorageService.clearAuthKeys();
+    _status = AuthStatus.unauthenticated;
+    _partnerId = null;
+    _isLoading = false;
+    notifyListeners();
+    // Fires the stream → MainShell listener → navigates to /welcome
+    SessionService.instance.triggerForceLogout();
   }
 
   // ─── LOGIN (REQUEST OTP) ──────────────────────────────────────────────────
@@ -231,9 +286,6 @@ class AuthProvider extends ChangeNotifier {
           case 'approved':
             _status = AuthStatus.authenticated;
             _startLocationTracking();
-            // ✅ sendTokenAfterLogin() reads the auth token we just saved
-            // and PATCHes the FCM token to the backend.
-            // Fire-and-forget — does not block login completion.
             unawaited(FCMService.instance.sendTokenAfterLogin());
             break;
           case 'pending':
@@ -249,7 +301,6 @@ class AuthProvider extends ChangeNotifier {
         await StorageService.savePartnerStatus('approved');
         _status = AuthStatus.authenticated;
         _startLocationTracking();
-        // ✅ Same here — token is already in secure storage at this point.
         unawaited(FCMService.instance.sendTokenAfterLogin());
       }
 
@@ -274,7 +325,6 @@ class AuthProvider extends ChangeNotifier {
     final sessionToken = await StorageService.getToken();
     await _stopLocationTracking();
     // Clear FCM token on backend so no more pushes arrive after logout.
-    // Uses a plain Dio internally — will not re-trigger force-logout on 401.
     await FCMService.instance.clearToken(sessionToken: sessionToken ?? '');
     await StorageService.clearAuthKeys();
     _status = AuthStatus.unauthenticated;

@@ -1,6 +1,7 @@
 //lib\config\theme.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AppTheme {
   // 🎨 Brand Colors
@@ -28,6 +29,22 @@ class AppTheme {
         elevation: 0,
         centerTitle: true,
         foregroundColor: Colors.black,
+
+        // FIX: Without this, every AppBar re-renders without resetting the
+        // status bar style, so the solid colour set in main.dart bleeds through.
+        //
+        // Now every AppBar in the app explicitly pins:
+        //   • transparent status bar   → screen/AppBar colour shows through
+        //   • dark icons               → always visible on light backgrounds
+        //   • Brightness.light (iOS)   → same guarantee on iPhone
+        //
+        // This also overrides whatever the phone's dark-mode tries to apply,
+        // which was causing status bar icons to disappear on some devices.
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+        ),
       ),
 
       textTheme: const TextTheme(
