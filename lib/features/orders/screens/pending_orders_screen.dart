@@ -1,10 +1,10 @@
-// lib/features/orders/screens/pending_orders_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/orders_provider.dart';
 import '../models/order_model.dart';
+import '../widgets/order_card.dart';
+import '../widgets/skeleton_card.dart';
 import 'order_details_screen.dart';
 
 class PendingOrdersScreen extends StatefulWidget {
@@ -17,18 +17,7 @@ class PendingOrdersScreen extends StatefulWidget {
 class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
   String _searchQuery = '';
   String _selectedSort = 'All Orders';
-  final TextEditingController _searchController = TextEditingController();
-
-  // ─── AUTO-LOAD FIX ────────────────────────────────────────────────────────
-  //
-  // We use didChangeDependencies() instead of initState() +
-  // addPostFrameCallback().  didChangeDependencies fires synchronously after
-  // the widget's dependencies (i.e. Providers) are available, which makes it
-  // more reliable than postFrameCallback in an IndexedStack where all children
-  // mount simultaneously.
-  //
-  // The _fetchTriggered guard prevents re-triggering on every subsequent
-  // dependency change (theme, locale, etc.).
+  final _searchController = TextEditingController();
   bool _fetchTriggered = false;
 
   @override
@@ -36,8 +25,6 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
     super.didChangeDependencies();
     if (!_fetchTriggered) {
       _fetchTriggered = true;
-      // fetchIfNeeded() is smart: it skips if data is fresh and only hits the
-      // network when needed, so switching tabs is instant.
       context.read<OrdersProvider>().fetchIfNeeded();
     }
   }
@@ -48,20 +35,29 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
     super.dispose();
   }
 
-  Future<void> _refreshOrders() async {
-    await context.read<OrdersProvider>().fetchOrders();
+  Future<void> _refresh() => context.read<OrdersProvider>().fetchOrders();
+
+  List<OrderModel> _displayOrders(OrdersProvider p) {
+    final filtered = p.filterOrders(_searchQuery);
+    return p.sortOrders(filtered, _selectedSort);
   }
 
-  void _filterOrders(String query) => setState(() => _searchQuery = query);
-
+  void _onSearch(String q) => setState(() => _searchQuery = q);
   void _clearSearch() {
     _searchController.clear();
-    _filterOrders('');
+    _onSearch('');
   }
 
-  List<OrderModel> _getDisplayOrders(OrdersProvider provider) {
-    final filtered = provider.filterOrders(_searchQuery);
-    return provider.sortOrders(filtered, _selectedSort);
+  Future<void> _openDetail(OrderModel order, OrdersProvider provider) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => OrderDetailsScreen(order: order)),
+    );
+    if ((changed ?? false) && mounted) await provider.fetchOrders();
+  }
+
+  Future<void> _updateStatus(OrdersProvider p, OrderModel order) async {
+    await p.updateOrderStatus(orderId: order.id, status: order.nextStatus);
   }
 
   @override
@@ -77,17 +73,14 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
         automaticallyImplyLeading: false,
         title: const Text(
           'Current Orders',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         actions: [
-          // Count badge — uses Selector so ONLY this widget rebuilds when
-          // order count changes, not the whole screen.
           Selector<OrdersProvider, int>(
             selector: (_, p) => p.orders.length,
-            builder: (_, count, _) => Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            builder: (_, count, __) => Container(
+              margin: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
                 color: primary,
                 borderRadius: BorderRadius.circular(20),
@@ -97,7 +90,7 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
                 children: [
                   const Icon(Icons.shopping_bag_outlined,
                       color: Colors.white, size: 16),
-                  const SizedBox(width: 5),
+                  const SizedBox(width: 6),
                   Text(
                     '$count',
                     style: const TextStyle(
@@ -114,69 +107,92 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
       ),
       body: Consumer<OrdersProvider>(
         builder: (context, provider, _) {
-          final displayOrders = _getDisplayOrders(provider);
-          final isEmpty = !provider.isLoading && displayOrders.isEmpty;
+          final orders = _displayOrders(provider);
+          final isEmpty = !provider.isLoading && orders.isEmpty;
 
           return RefreshIndicator(
-            onRefresh: _refreshOrders,
+            onRefresh: _refresh,
             color: primary,
             child: isEmpty && !provider.isLoading
-                ? _buildEmptyStateWithScroll(provider)
-                : _buildOrdersList(provider, displayOrders, primary),
+                ? _EmptyState(
+                    hasError: provider.error != null,
+                    onRetry: _refresh,
+                  )
+                : _OrderList(
+                    provider: provider,
+                    orders: orders,
+                    primary: primary,
+                    searchQuery: _searchQuery,
+                    selectedSort: _selectedSort,
+                    searchController: _searchController,
+                    onSearch: _onSearch,
+                    onClearSearch: _clearSearch,
+                    onSortChanged: (s) => setState(() => _selectedSort = s),
+                    onView: (o) => _openDetail(o, provider),
+                    onAction: (o) => _updateStatus(provider, o),
+                  ),
           );
         },
       ),
     );
   }
+}
 
-  // ─── LAYOUTS ──────────────────────────────────────────────────────────────
+// ─── Order List with Search, Chips & Cards ─────────────────────────────────
 
-  Widget _buildEmptyStateWithScroll(OrdersProvider provider) {
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Column(
-            children: [
-              _SearchBar(
-                controller: _searchController,
-                searchQuery: _searchQuery,
-                onChanged: _filterOrders,
-                onClear: _clearSearch,
-              ),
-              SizedBox(height: constraints.maxHeight * 0.18),
-              // Show error if fetch failed, otherwise empty state
-              if (provider.error != null)
-                _buildErrorCard(provider)
-              else
-                _emptyState(provider),
-            ],
+class _OrderList extends StatelessWidget {
+  final OrdersProvider provider;
+  final List<OrderModel> orders;
+  final Color primary;
+  final String searchQuery;
+  final String selectedSort;
+  final TextEditingController searchController;
+  final ValueChanged<String> onSearch;
+  final VoidCallback onClearSearch;
+  final ValueChanged<String> onSortChanged;
+  final ValueChanged<OrderModel> onView;
+  final ValueChanged<OrderModel> onAction;
+
+  const _OrderList({
+    required this.provider,
+    required this.orders,
+    required this.primary,
+    required this.searchQuery,
+    required this.selectedSort,
+    required this.searchController,
+    required this.onSearch,
+    required this.onClearSearch,
+    required this.onSortChanged,
+    required this.onView,
+    required this.onAction,
+  });
+
+  static const _sortOptions = [
+    ('All Orders', null, Color(0xFF2B8CEE)),
+    ('Pending', 'Pending', Colors.orange),
+    ('On the Way', 'On the Way', Colors.blue),
+    ('Quantity', 'Quantity', Colors.green),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomScrollView(
+      slivers: [
+        // Search
+        SliverToBoxAdapter(
+          child: _SearchBar(
+            controller: searchController,
+            query: searchQuery,
+            onChanged: onSearch,
+            onClear: onClearSearch,
           ),
         ),
-      ),
-    );
-  }
 
-  Widget _buildOrdersList(
-    OrdersProvider provider,
-    List<OrderModel> displayOrders,
-    Color primary,
-  ) {
-    return Column(
-      children: [
-        _SearchBar(
-          controller: _searchController,
-          searchQuery: _searchQuery,
-          onChanged: _filterOrders,
-          onClear: _clearSearch,
-        ),
-
+        // Last updated
         if (provider.lastUpdated != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
               child: Text(
                 'Updated ${DateFormat('hh:mm a').format(provider.lastUpdated!)}',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
@@ -184,97 +200,195 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
             ),
           ),
 
-        if (provider.error != null) _buildErrorCard(provider),
+        // Error banner
+        if (provider.error != null)
+          SliverToBoxAdapter(child: _ErrorBanner(error: provider.error!)),
 
         // Sort chips
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 0, 8),
+        SliverToBoxAdapter(
           child: SizedBox(
-            height: 34,
-            child: ListView(
+            height: 44,
+            child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              children: [
-                _chip('All Orders',
-                    active: _selectedSort == 'All Orders',
-                    color: primary,
-                    onTap: () =>
-                        setState(() => _selectedSort = 'All Orders')),
-                _chip('Pending',
-                    active: _selectedSort == 'Pending',
-                    color: Colors.orange,
-                    onTap: () =>
-                        setState(() => _selectedSort = 'Pending')),
-                _chip('On the Way',
-                    active: _selectedSort == 'On the Way',
-                    color: Colors.blue,
-                    onTap: () =>
-                        setState(() => _selectedSort = 'On the Way')),
-                _chip('Quantity',
-                    active: _selectedSort == 'Quantity',
-                    color: Colors.green,
-                    onTap: () =>
-                        setState(() => _selectedSort = 'Quantity')),
-              ],
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: _sortOptions.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) {
+                final (label, _, color) = _sortOptions[i];
+                final active = selectedSort == label;
+                return _SortChip(
+                  label: label,
+                  active: active,
+                  color: color,
+                  onTap: () => onSortChanged(label),
+                );
+              },
             ),
           ),
         ),
 
-        Expanded(
-          child: provider.isLoading
-              ? const _LoadingList()
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                  itemCount: displayOrders.length,
-                  itemBuilder: (context, index) => RepaintBoundary(
-                    child: _orderCard(
-                      displayOrders[index],
-                      primary,
-                      context,
-                      provider,
-                    ),
+        const SliverToBoxAdapter(child: SizedBox(height: 8)),
+
+        // Loading or List
+        if (provider.isLoading && orders.isEmpty)
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (_, __) => const SkeletonCard(),
+              childCount: 6,
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            sliver: SliverList.builder(
+              itemCount: orders.length,
+              itemBuilder: (_, index) {
+                final order = orders[index];
+                return RepaintBoundary(
+                  child: OrderCard(
+                    order: order,
+                    onTap: () => onView(order),
+                    onActionTap: order.canUpdateStatus
+                        ? () => onAction(order)
+                        : null,
                   ),
-                ),
-        ),
+                );
+              },
+            ),
+          ),
+
+        const SliverToBoxAdapter(child: SizedBox(height: 32)),
       ],
     );
   }
+}
 
-  // ─── HELPERS ──────────────────────────────────────────────────────────────
+// ─── Supporting Widgets ────────────────────────────────────────────────────
 
-  Widget _chip(String label,
-      {required bool active,
-      required Color color,
-      required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+class _SearchBar extends StatelessWidget {
+  final TextEditingController controller;
+  final String query;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  const _SearchBar({
+    required this.controller,
+    required this.query,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      child: Container(
+        height: 46,
         decoration: BoxDecoration(
-          color: active ? color : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: active ? color : Colors.grey.shade200,
-          ),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: active ? Colors.white : Colors.grey.shade600,
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            Icon(Icons.search, color: Colors.grey.shade400, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Search by customer, shop or order ID...',
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: 14,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onChanged: onChanged,
+              ),
+            ),
+            if (query.isNotEmpty)
+              GestureDetector(
+                onTap: onClear,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Icon(Icons.clear, size: 18, color: Colors.grey.shade400),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SortChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SortChip({
+    required this.label,
+    required this.active,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      child: Material(
+        color: active ? color : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: active ? color : Colors.grey.shade200,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: active ? Colors.white : Colors.grey.shade600,
+              ),
+            ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildErrorCard(OrdersProvider provider) {
+class _ErrorBanner extends StatelessWidget {
+  final String error;
+  const _ErrorBanner({required this.error});
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.red.shade50,
           borderRadius: BorderRadius.circular(12),
@@ -286,438 +400,81 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                provider.error!,
+                error,
                 style: TextStyle(color: Colors.red.shade700, fontSize: 13),
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 16),
-              onPressed: provider.clearError,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _emptyState(OrdersProvider provider) {
-    // Distinguish between "loading failed" and "genuinely no orders"
-    final isError = provider.error != null;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isError ? Icons.wifi_off_rounded : Icons.inbox_rounded,
-              size: 64,
-              color: Colors.grey.shade300,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              isError ? 'Could not load orders' : 'No pending orders',
-              style: const TextStyle(
-                  fontSize: 17, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              isError
-                  ? 'Pull down to try again'
-                  : 'Pull down to refresh',
-              style: TextStyle(
-                  color: Colors.grey.shade500, fontSize: 14),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+class _EmptyState extends StatelessWidget {
+  final bool hasError;
+  final VoidCallback onRetry;
 
-  // ─── ORDER CARD ───────────────────────────────────────────────────────────
+  const _EmptyState({required this.hasError, required this.onRetry});
 
-  Widget _orderCard(
-    OrderModel order,
-    Color primary,
-    BuildContext context,
-    OrdersProvider provider,
-  ) {
-    final status = order.deliveryStatus;
-    final orderDate =
-        DateFormat('MMM dd, hh:mm a').format(order.createdAt);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade100),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        order.customerName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (order.shopName != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          order.shopName!,
-                          style: const TextStyle(
-                              color: Colors.grey, fontSize: 12),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ],
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(40),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    hasError ? Icons.wifi_off_rounded : Icons.inbox_outlined,
+                    size: 72,
+                    color: Colors.grey.shade300,
                   ),
-                ),
-                const SizedBox(width: 8),
-                _statusBadge(status),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (order.customerContact != null)
-              _infoRow(Icons.call, order.customerContact!),
-            const SizedBox(height: 4),
-            _infoRow(Icons.location_on, order.customerAddress),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    'Order: $orderDate',
-                    style: TextStyle(
-                        fontSize: 11, color: Colors.grey.shade600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '${order.totalItems} items',
+                  const SizedBox(height: 20),
+                  Text(
+                    hasError ? 'Could not load orders' : 'No pending orders',
                     style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue),
-                  ),
-                ),
-              ],
-            ),
-            const Divider(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: OutlinedButton(
-                    onPressed: () async {
-                      final result = await Navigator.push<bool>(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              OrderDetailsScreen(order: order),
-                        ),
-                      );
-                      // Only refetch if the status was changed (result == true)
-                      if ((result ?? false) && context.mounted) {
-                        await provider.fetchOrders();
-                      }
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: primary,
-                      side: BorderSide(color: primary),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
-                    child: const Text('View',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
-                ),
-                if (order.canUpdateStatus) ...[
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 3,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        await provider.updateOrderStatus(
-                          orderId: order.id,
-                          status: order.nextStatus,
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: status == 'Pending'
-                            ? primary
-                            : Colors.green,
-                        foregroundColor: Colors.white,
+                  const SizedBox(height: 8),
+                  Text(
+                    hasError
+                        ? 'Check your connection and try again.'
+                        : 'Pull down to refresh. New orders will appear here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  ),
+                  if (hasError) ...[
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Retry'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF2B8CEE),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 10),
-                        elevation: 0,
-                      ),
-                      child: Text(
-                        status == 'Pending'
-                            ? 'Start Delivery'
-                            : 'Mark Delivered',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _infoRow(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, size: 13, color: Colors.grey.shade500),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _statusBadge(String status) {
-    final (bg, fg) = switch (status) {
-      'On the Way' => (Colors.blue.shade50, Colors.blue.shade700),
-      'Delivered' => (Colors.green.shade50, Colors.green.shade700),
-      _ => (Colors.orange.shade50, Colors.orange.shade700),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-          color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Text(
-        status.toUpperCase(),
-        style: TextStyle(
-            color: fg, fontWeight: FontWeight.bold, fontSize: 10),
-      ),
-    );
-  }
-}
-
-// ─── Extracted Search Bar ─────────────────────────────────────────────────────
-// Separate StatefulWidget so typing inside the bar doesn't rebuild the whole
-// screen — only this tiny widget rerenders.
-
-class _SearchBar extends StatelessWidget {
-  const _SearchBar({
-    required this.controller,
-    required this.searchQuery,
-    required this.onChanged,
-    required this.onClear,
-  });
-
-  final TextEditingController controller;
-  final String searchQuery;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onClear;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Container(
-        height: 42,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.search, color: Colors.grey.shade400, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                style: const TextStyle(fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: 'Search by customer or shop...',
-                  hintStyle:
-                      TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-                onChanged: onChanged,
               ),
             ),
-            if (searchQuery.isNotEmpty)
-              GestureDetector(
-                onTap: onClear,
-                child: Icon(Icons.clear, size: 16, color: Colors.grey.shade400),
-              ),
-          ],
+          ),
         ),
       ),
-    );
-  }
-}
-
-// ─── Shimmer-style loading placeholder ────────────────────────────────────────
-
-class _LoadingList extends StatelessWidget {
-  const _LoadingList();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      itemCount: 5,
-      itemBuilder: (_, _) => const _SkeletonCard(),
-    );
-  }
-}
-
-class _SkeletonCard extends StatefulWidget {
-  const _SkeletonCard();
-
-  @override
-  State<_SkeletonCard> createState() => _SkeletonCardState();
-}
-
-class _SkeletonCardState extends State<_SkeletonCard>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    )..repeat(reverse: true);
-    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (_, _) {
-        final shimmer = Color.lerp(
-          Colors.grey.shade200,
-          Colors.grey.shade100,
-          _anim.value,
-        )!;
-        return Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.grey.shade100),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                      height: 14, width: 140,
-                      decoration: BoxDecoration(
-                          color: shimmer,
-                          borderRadius: BorderRadius.circular(7))),
-                  const Spacer(),
-                  Container(
-                      height: 22, width: 70,
-                      decoration: BoxDecoration(
-                          color: shimmer,
-                          borderRadius: BorderRadius.circular(11))),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Container(
-                  height: 10, width: 100,
-                  decoration: BoxDecoration(
-                      color: shimmer,
-                      borderRadius: BorderRadius.circular(5))),
-              const SizedBox(height: 10),
-              Container(
-                  height: 10, width: double.infinity,
-                  decoration: BoxDecoration(
-                      color: shimmer,
-                      borderRadius: BorderRadius.circular(5))),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                        height: 34,
-                        decoration: BoxDecoration(
-                            color: shimmer,
-                            borderRadius: BorderRadius.circular(10))),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Container(
-                        height: 34,
-                        decoration: BoxDecoration(
-                            color: shimmer,
-                            borderRadius: BorderRadius.circular(10))),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

@@ -9,26 +9,21 @@ import '../../../core/utils/date_utils.dart';
 class StickyNoteDetailScreen extends StatelessWidget {
   final StickyNoteModel note;
 
-  const StickyNoteDetailScreen({
-    super.key,
-    required this.note,
-  });
+  const StickyNoteDetailScreen({super.key, required this.note});
 
   void _navigateToEdit(BuildContext context) async {
     final nav = Navigator.of(context);
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => StickyNoteFormScreen(
-          mode: FormMode.edit,
-          existingNote: note,
-        ),
+        builder: (context) =>
+            StickyNoteFormScreen(mode: FormMode.edit, existingNote: note),
       ),
     );
 
     if (result == true) {
-        nav.pop(true);
-      }
+      nav.pop(true);
+    }
   }
 
   @override
@@ -61,10 +56,7 @@ class StickyNoteDetailScreen extends StatelessWidget {
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child: Container(
-            height: 1,
-            color: const Color(0xFFDBE0E6),
-          ),
+          child: Container(height: 1, color: const Color(0xFFDBE0E6)),
         ),
       ),
       body: SingleChildScrollView(
@@ -204,9 +196,14 @@ class StickyNoteDetailScreen extends StatelessWidget {
       bottomSheet: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFDBE0E6)),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFDBE0E6))),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 12,
+              offset: Offset(0, -4),
+            ),
+          ],
         ),
         padding: const EdgeInsets.all(16),
         child: SafeArea(
@@ -215,20 +212,22 @@ class StickyNoteDetailScreen extends StatelessWidget {
             height: 56,
             child: FilledButton.icon(
               onPressed: () => _navigateToEdit(context),
-              icon: const Icon(Icons.edit_outlined),
+              icon: const Icon(Icons.edit_outlined, size: 20),
               label: const Text(
                 'Edit Sticky Note',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
+                  letterSpacing: 0.2,
                 ),
               ),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF2B8CEE),
+                foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                elevation: 2,
+                elevation: 0,
               ),
             ),
           ),
@@ -244,10 +243,7 @@ class StickyNoteDetailScreen extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           text,
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF617589),
-          ),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF617589)),
         ),
       ],
     );
@@ -257,18 +253,18 @@ class StickyNoteDetailScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFDBE0E6)),
+        border: Border.all(color: color.withOpacity(0.25)),
       ),
       child: Column(
         children: [
-          Icon(icon, color: color, size: 26),
+          Icon(icon, color: color, size: 28),
           const SizedBox(height: 8),
           Text(
             value,
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 22,
               fontWeight: FontWeight.bold,
               color: color,
               letterSpacing: -0.5,
@@ -278,9 +274,9 @@ class StickyNoteDetailScreen extends StatelessWidget {
           Text(
             label,
             style: const TextStyle(
-              fontSize: 11,
+              fontSize: 12,
               color: Color(0xFF617589),
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -290,7 +286,7 @@ class StickyNoteDetailScreen extends StatelessWidget {
 
   Widget _productCard(StickyNoteItem item, int index) {
     final isBox = item.unit == 'box';
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -306,16 +302,12 @@ class StickyNoteDetailScreen extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: isBox
-                  ? const Color(0xFFFEF3C7)
-                  : const Color(0xFFDBEAFE),
+              color: isBox ? const Color(0xFFFEF3C7) : const Color(0xFFDBEAFE),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               isBox ? Icons.inventory_2_outlined : Icons.category_outlined,
-              color: isBox
-                  ? const Color(0xFFF59E0B)
-                  : const Color(0xFF2B8CEE),
+              color: isBox ? const Color(0xFFF59E0B) : const Color(0xFF2B8CEE),
               size: 20,
             ),
           ),
@@ -378,9 +370,7 @@ class StickyNoteDetailScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: isBox
-                  ? const Color(0xFFFEF3C7)
-                  : const Color(0xFFDBEAFE),
+              color: isBox ? const Color(0xFFFEF3C7) : const Color(0xFFDBEAFE),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isBox

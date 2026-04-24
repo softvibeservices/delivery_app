@@ -1,11 +1,10 @@
-// lib/features/orders/screens/delivered_orders_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../providers/delivered_orders_provider.dart';
 import '../models/order_model.dart';
+import '../widgets/order_card.dart';
+import '../widgets/skeleton_card.dart';
 import '../../../core/utils/date_utils.dart';
 import 'order_details_screen.dart';
 
@@ -18,7 +17,7 @@ class DeliveredOrdersScreen extends StatefulWidget {
 
 class _DeliveredOrdersScreenState extends State<DeliveredOrdersScreen> {
   String _searchQuery = '';
-  final TextEditingController _searchController = TextEditingController();
+  final _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -34,28 +33,20 @@ class _DeliveredOrdersScreenState extends State<DeliveredOrdersScreen> {
     super.dispose();
   }
 
-  Future<void> _refreshOrders() async {
-    await context.read<DeliveredOrdersProvider>().fetchDeliveredOrders();
-  }
+  Future<void> _refresh() =>
+      context.read<DeliveredOrdersProvider>().fetchDeliveredOrders();
 
-  void _filterOrders(String query) => setState(() => _searchQuery = query);
-
+  void _onSearch(String q) => setState(() => _searchQuery = q);
   void _clearSearch() {
     _searchController.clear();
-    _filterOrders('');
+    _onSearch('');
   }
 
-  Future<void> _makePhoneCall(String phoneNumber) async {
-    final uri = Uri(scheme: 'tel', path: phoneNumber);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not make phone call')),
-        );
-      }
-    }
+  Future<void> _openDetail(OrderModel order) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => OrderDetailsScreen(order: order)),
+    );
   }
 
   @override
@@ -66,434 +57,511 @@ class _DeliveredOrdersScreenState extends State<DeliveredOrdersScreen> {
       backgroundColor: const Color(0xFFF6F7F8),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white.withValues(alpha: 0.9),
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.white,
         automaticallyImplyLeading: false,
-        title: const Text('Delivered Orders',
-            style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Delivered Orders',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         actions: [
-          Consumer<DeliveredOrdersProvider>(
-            builder: (context, provider, _) => Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          Selector<DeliveredOrdersProvider, int>(
+            selector: (_, p) => p.totalDeliveries,
+            builder: (_, count, __) => Container(
+              margin: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: BoxDecoration(
-                  color: Colors.green,
-                  borderRadius: BorderRadius.circular(20)),
+                color: Colors.green,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.green.withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.check_circle_outline,
-                      color: Colors.white, size: 18),
+                      color: Colors.white, size: 16),
                   const SizedBox(width: 6),
                   Text(
-                    '${provider.totalDeliveries}',
+                    '$count',
                     style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold),
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
             ),
           ),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: const Color(0xFFE8EAED)),
+        ),
       ),
       body: Consumer<DeliveredOrdersProvider>(
         builder: (context, provider, _) {
-          final groupedOrders = provider.filterOrders(_searchQuery);
-          final isEmpty = !provider.isLoading &&
-              groupedOrders.values.every((list) => list.isEmpty);
+          final grouped = provider.filterOrders(_searchQuery);
+          final hasData = grouped.values.any((l) => l.isNotEmpty);
+          final isEmpty = !provider.isLoading && !hasData;
 
           return RefreshIndicator(
-            onRefresh: _refreshOrders,
-            child: isEmpty && !provider.isLoading
-                ? _buildEmptyStateWithScroll()
-                : _buildOrdersList(provider, groupedOrders, primary),
+            onRefresh: _refresh,
+            color: primary,
+            child: isEmpty
+                ? _EmptyState(
+                    hasError: provider.error != null,
+                    hasSearch: _searchQuery.isNotEmpty,
+                    onRetry: _refresh,
+                  )
+                : CustomScrollView(
+                    slivers: [
+                      // Search
+                      SliverToBoxAdapter(
+                        child: _SearchBar(
+                          controller: _searchController,
+                          query: _searchQuery,
+                          onChanged: _onSearch,
+                          onClear: _clearSearch,
+                        ),
+                      ),
+
+                      // Stats
+                      if (!provider.isLoading && provider.totalDeliveries > 0)
+                        SliverToBoxAdapter(
+                          child: _StatsRow(provider: provider),
+                        ),
+
+                      // Last updated
+                      if (provider.lastUpdated != null)
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                            child: Text(
+                              'Updated ${DateFormat('hh:mm a').format(provider.lastUpdated!)}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      // Error
+                      if (provider.error != null)
+                        SliverToBoxAdapter(
+                          child: _ErrorBanner(
+                            error: provider.error!,
+                            onDismiss: provider.clearError,
+                          ),
+                        ),
+
+                      // Loading skeletons
+                      if (provider.isLoading && !hasData)
+                        SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (_, __) => const SkeletonCard(),
+                            childCount: 5,
+                          ),
+                        ),
+
+                      // Grouped list
+                      if (hasData) ...[
+                        _GroupSliver(
+                          title: 'Today',
+                          orders: grouped['today']!,
+                          onTap: _openDetail,
+                        ),
+                        _GroupSliver(
+                          title: 'Yesterday',
+                          orders: grouped['yesterday']!,
+                          onTap: _openDetail,
+                        ),
+                        _GroupSliver(
+                          title: 'This Week',
+                          orders: grouped['this_week']!,
+                          onTap: _openDetail,
+                        ),
+                        _GroupSliver(
+                          title: 'Older',
+                          orders: grouped['older']!,
+                          onTap: _openDetail,
+                        ),
+                      ],
+
+                      const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                    ],
+                  ),
           );
         },
       ),
     );
   }
+}
 
-  // ─── LAYOUTS ──────────────────────────────────────────────────────────────
+// ─── Search Bar ────────────────────────────────────────────────────────────
 
-  Widget _buildEmptyStateWithScroll() {
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Column(
-            children: [
-              _buildSearchBar(),
-              SizedBox(height: constraints.maxHeight * 0.2),
-              _emptyState(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+class _SearchBar extends StatelessWidget {
+  final TextEditingController controller;
+  final String query;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
 
-  Widget _buildOrdersList(
-    DeliveredOrdersProvider provider,
-    Map<String, List<OrderModel>> groupedOrders,
-    Color primary,
-  ) {
-    return Column(
-      children: [
-        _buildSearchBar(),
+  const _SearchBar({
+    required this.controller,
+    required this.query,
+    required this.onChanged,
+    required this.onClear,
+  });
 
-        if (!provider.isLoading && provider.totalDeliveries > 0)
-          _buildStatistics(provider),
-
-        if (provider.lastUpdated != null)
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Last updated: ${DateFormat('hh:mm a').format(provider.lastUpdated!)}',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-            ),
-          ),
-
-        if (provider.error != null)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.red.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.red.shade700),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(provider.error!,
-                        style: TextStyle(color: Colors.red.shade700)),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: provider.clearError,
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-        Expanded(
-          child: provider.isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _buildGroupedOrdersList(groupedOrders, primary),
-        ),
-      ],
-    );
-  }
-
-  // ─── SEARCH ───────────────────────────────────────────────────────────────
-
-  Widget _buildSearchBar() {
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
       child: Container(
-        height: 44,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 48,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
           children: [
-            const Icon(Icons.search, color: Colors.grey),
-            const SizedBox(width: 8),
+            const SizedBox(width: 14),
+            Icon(Icons.search, color: Colors.grey.shade400, size: 20),
+            const SizedBox(width: 10),
             Expanded(
               child: TextField(
-                controller: _searchController,
-                decoration: const InputDecoration(
+                controller: controller,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
                   hintText: 'Search delivered orders...',
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: 14,
+                  ),
                   border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
                 ),
-                onChanged: _filterOrders,
+                onChanged: onChanged,
               ),
             ),
-            if (_searchQuery.isNotEmpty)
-              IconButton(
-                icon: const Icon(Icons.clear, size: 18),
-                onPressed: _clearSearch,
+            if (query.isNotEmpty)
+              GestureDetector(
+                onTap: onClear,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Icon(Icons.clear, size: 18, color: Colors.grey.shade400),
+                ),
               ),
           ],
         ),
       ),
     );
   }
+}
 
-  // ─── STATISTICS ───────────────────────────────────────────────────────────
+// ─── Stats Row ─────────────────────────────────────────────────────────────
 
-  Widget _buildStatistics(DeliveredOrdersProvider provider) {
+class _StatsRow extends StatelessWidget {
+  final DeliveredOrdersProvider provider;
+  const _StatsRow({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
       child: Row(
         children: [
-          Expanded(
-              child: _statCard('Today',
-                  provider.getTodayDeliveries().toString(), Icons.today,
-                  Colors.blue)),
-          const SizedBox(width: 12),
-          Expanded(
-              child: _statCard('This Week',
-                  provider.getThisWeekDeliveries().toString(),
-                  Icons.date_range, Colors.green)),
-          const SizedBox(width: 12),
-          Expanded(
-              child: _statCard('Total',
-                  provider.totalDeliveries.toString(),
-                  Icons.check_circle, Colors.orange)),
-        ],
-      ),
-    );
-  }
-
-  Widget _statCard(
-      String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 4),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: color)),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11, color: Colors.grey.shade600)),
-        ],
-      ),
-    );
-  }
-
-  // ─── GROUPED LIST ─────────────────────────────────────────────────────────
-
-  Widget _buildGroupedOrdersList(
-    Map<String, List<OrderModel>> groupedOrders,
-    Color primary,
-  ) {
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
-      children: [
-        if (groupedOrders['today']?.isNotEmpty ?? false)
-          _buildOrderGroup('Today', groupedOrders['today']!, primary),
-        if (groupedOrders['yesterday']?.isNotEmpty ?? false)
-          _buildOrderGroup(
-              'Yesterday', groupedOrders['yesterday']!, primary),
-        if (groupedOrders['this_week']?.isNotEmpty ?? false)
-          _buildOrderGroup(
-              'This Week', groupedOrders['this_week']!, primary),
-        if (groupedOrders['older']?.isNotEmpty ?? false)
-          _buildOrderGroup('Older', groupedOrders['older']!, primary),
-      ],
-    );
-  }
-
-  Widget _buildOrderGroup(
-      String title, List<OrderModel> orders, Color primary) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Text(
-            '$title (${orders.length})',
-            style: const TextStyle(
-                fontSize: 18, fontWeight: FontWeight.bold),
+          _StatCard(
+            label: 'Today',
+            value: provider.todayCount.toString(),
+            icon: Icons.today_outlined,
+            color: Colors.blue,
           ),
-        ),
-        ...orders.map((order) => _deliveredOrderCard(order, primary)),
-      ],
+          const SizedBox(width: 12),
+          _StatCard(
+            label: 'This Week',
+            value: provider.getThisWeekDeliveries().toString(),
+            icon: Icons.date_range_outlined,
+            color: Colors.green,
+          ),
+          const SizedBox(width: 12),
+          _StatCard(
+            label: 'Total',
+            value: provider.totalDeliveries.toString(),
+            icon: Icons.check_circle_outline,
+            color: Colors.orange,
+          ),
+        ],
+      ),
     );
   }
+}
 
-  // ─── DELIVERED ORDER CARD ─────────────────────────────────────────────────
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
 
-  Widget _deliveredOrderCard(OrderModel order, Color primary) {
-    // Use AppDateUtils — single source of truth, handles "Just now" edge case.
-    final deliveredTime = order.deliveryCompletedAt != null
-        ? AppDateUtils.getRelativeTime(order.deliveryCompletedAt!)
-        : '--';
+  const _StatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade100),
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE8EAED)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(height: 10),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: Text(
+                value,
+                key: ValueKey(value),
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => OrderDetailsScreen(order: order)),
+    );
+  }
+}
+
+// ─── Group Sliver ──────────────────────────────────────────────────────────
+
+class _GroupSliver extends StatelessWidget {
+  final String title;
+  final List<OrderModel> orders;
+  final ValueChanged<OrderModel> onTap;
+
+  const _GroupSliver({
+    required this.title,
+    required this.orders,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (orders.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            if (index == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 16, bottom: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2B8CEE),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      '$title (${orders.length})',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            final order = orders[index - 1];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: OrderCard(
+                order: order,
+                onTap: () => onTap(order),
+              ),
             );
           },
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── Header ─────────────────────────────────────────────
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            order.customerName,
-                            style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (order.shopName != null)
-                            Text(
-                              order.shopName!,
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade600),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (order.customerContact != null)
-                      IconButton(
-                        onPressed: () =>
-                            _makePhoneCall(order.customerContact!),
-                        icon: Icon(Icons.call, color: primary, size: 20),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 10),
+          childCount: orders.length + 1,
+        ),
+      ),
+    );
+  }
+}
 
-                // ── Items + amount ──────────────────────────────────────
-                Row(
-                  children: [
-                    Icon(Icons.shopping_bag_outlined,
-                        size: 16, color: Colors.grey.shade600),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${order.totalItems} items',
-                      style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade700),
-                    ),
-                    const SizedBox(width: 16),
-                    Icon(Icons.currency_rupee,
-                        size: 16, color: Colors.grey.shade600),
-                    Text(
-                      order.total.toStringAsFixed(2),
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade700),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
+// ─── Error Banner ──────────────────────────────────────────────────────────
 
-                // ── Delivery time + badge ───────────────────────────────
-                Row(
-                  children: [
-                    Icon(Icons.access_time,
-                        size: 14, color: Colors.grey.shade500),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        deliveredTime,
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade500),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+class _ErrorBanner extends StatelessWidget {
+  final String error;
+  final VoidCallback onDismiss;
+
+  const _ErrorBanner({required this.error, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                error,
+                style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+              ),
+            ),
+            GestureDetector(
+              onTap: onDismiss,
+              child: Icon(Icons.close, size: 18, color: Colors.red.shade700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Empty State ───────────────────────────────────────────────────────────
+
+class _EmptyState extends StatelessWidget {
+  final bool hasError;
+  final bool hasSearch;
+  final VoidCallback onRetry;
+
+  const _EmptyState({
+    required this.hasError,
+    required this.hasSearch,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(40),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    hasError ? Icons.wifi_off_rounded : Icons.inbox_outlined,
+                    size: 72,
+                    color: Colors.grey.shade300,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    hasError
+                        ? 'Could not load orders'
+                        : (hasSearch ? 'No matches found' : 'No deliveries yet'),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.check_circle,
-                              size: 12, color: Colors.green.shade700),
-                          const SizedBox(width: 4),
-                          Text(
-                            'DELIVERED',
-                            style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green.shade700),
-                          ),
-                        ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    hasError
+                        ? 'Check your connection and try again.'
+                        : (hasSearch
+                            ? 'Try a different search term.'
+                            : 'Completed deliveries will appear here.'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  ),
+                  if (hasError) ...[
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Retry'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF2B8CEE),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                   ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  // ─── EMPTY STATE ──────────────────────────────────────────────────────────
-
-  Widget _emptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.check_circle_outline,
-              size: 64, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          const Text('No delivered orders yet',
-              style: TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text(
-            _searchQuery.isNotEmpty
-                ? 'Try adjusting your search'
-                : 'Keep up the great work!\nDeliveries will appear here',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey.shade500),
-          ),
-        ],
       ),
     );
   }

@@ -1,13 +1,6 @@
 // lib/features/profile/screens/app_settings_screen.dart
-// Group 8 changes:
-//  P5-1: _saveSettings() is silent — no snackbar spam on rapid toggling.
-//  P5-2: Promotional toggle removed — this is a B2B delivery tool, not a
-//        consumer app. There are no promotional notifications.
-//  P5-3: "Clear Cache" now actually clears data: offline location queue +
-//        recent customer searches. Auth data survives.
-//  P5-4: "Privacy Policy" and "Terms of Service" tiles removed entirely.
-//        They showed "Coming soon" snackbars — not acceptable in production.
-//  BONUS: activeColor → activeThumbColor (fixes the deprecated API warning).
+// Refactored: Silent saves, real cache clearing, grouped switches,
+// no deprecated API usage, skeleton on init.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -23,22 +16,18 @@ class AppSettingsScreen extends StatefulWidget {
 }
 
 class _AppSettingsScreenState extends State<AppSettingsScreen> {
+  bool _isLoading = true;
   bool _notificationsEnabled = true;
   bool _orderNotifications = true;
   bool _deliveryUpdates = true;
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
   }
-
-  // ─── LOAD ─────────────────────────────────────────────────────────────────
-  // Uses StorageService.getNotificationSettings() which reads from the
-  // cached prefs instance — synchronous, no async overhead.
 
   void _loadSettings() {
     final s = StorageService.getNotificationSettings();
@@ -52,10 +41,6 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     });
   }
 
-  // ─── SAVE (P5-1: silent) ──────────────────────────────────────────────────
-  // Saves are fire-and-forget. The toggle's visual state IS the feedback.
-  // No snackbar — rapid toggling previously stacked multiple banners.
-
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(
@@ -67,10 +52,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     await prefs.setBool(StorageService.keySoundEnabled, _soundEnabled);
     await prefs.setBool(
         StorageService.keyVibrationEnabled, _vibrationEnabled);
-    // No snackbar — intentional (P5-1).
+    // Intentionally silent — no snackbar (P5-1).
   }
-
-  // ─── CLEAR CACHE (P5-3: real implementation) ──────────────────────────────
 
   void _showClearCacheDialog() {
     showDialog(
@@ -104,19 +87,13 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   }
 
   Future<void> _clearCache() async {
-    // 1. Clear offline location update queue from SharedPreferences.
     await StorageService.clearLocationQueue();
-
-    // 2. Clear recent customer searches from SharedPreferences.
     await StorageService.clearRecentSearches();
 
-    // 3. Sync the in-memory GoToProvider list so the Go To screen
-    //    immediately reflects the cleared state without a restart.
     if (mounted) {
       await context.read<GoToProvider>().clearRecentSearches();
     }
 
-    // 4. Show success feedback — only AFTER the work is done.
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -128,33 +105,31 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     }
   }
 
-  // ─── ABOUT ────────────────────────────────────────────────────────────────
-
   void _showAboutDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('About App'),
-        content: Column(
+        content: const Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Ice Cream Delivery Partner',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
-            const SizedBox(height: 8),
-            const Text('Version: 1.0.0'),
-            const SizedBox(height: 16),
-            const Text(
+            SizedBox(height: 8),
+            Text('Version: 1.0.0'),
+            SizedBox(height: 16),
+            Text(
               'Designed for the Ice Cream Inventory Management Team',
               style: TextStyle(fontSize: 13),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Text(
               '© 2025 All rights reserved',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12, color: Color(0xFF617589)),
             ),
           ],
         ),
@@ -168,14 +143,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     );
   }
 
-  // ─── BUILD ────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7F8),
       appBar: AppBar(
@@ -192,276 +161,305 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 18,
-            letterSpacing: -0.015 * 18,
+            letterSpacing: -0.3,
           ),
         ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: const Color(0xFFDBE0E6)),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, color: Color(0xFFDBE0E6)),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 8),
-
-            // ── Notifications ─────────────────────────────────────────────
-            Container(
-              color: Colors.white,
+      body: _isLoading
+          ? const _SettingsSkeleton()
+          : SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Text(
-                      'NOTIFICATIONS',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF617589),
-                        letterSpacing: 0.8,
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    title: 'NOTIFICATIONS',
+                    children: [
+                      _SwitchTile(
+                        icon: Icons.notifications_outlined,
+                        title: 'Enable Notifications',
+                        subtitle: 'Receive app notifications',
+                        value: _notificationsEnabled,
+                        onChanged: (v) {
+                          setState(() => _notificationsEnabled = v);
+                          _saveSettings();
+                        },
                       ),
-                    ),
+                      const _Divider(),
+                      _SwitchTile(
+                        icon: Icons.assignment_outlined,
+                        title: 'Order Notifications',
+                        subtitle: 'New order assignments',
+                        value: _orderNotifications,
+                        onChanged: _notificationsEnabled
+                            ? (v) {
+                                setState(() => _orderNotifications = v);
+                                _saveSettings();
+                              }
+                            : null,
+                      ),
+                      const _Divider(),
+                      _SwitchTile(
+                        icon: Icons.local_shipping_outlined,
+                        title: 'Delivery Updates',
+                        subtitle: 'Status and tracking alerts',
+                        value: _deliveryUpdates,
+                        onChanged: _notificationsEnabled
+                            ? (v) {
+                                setState(() => _deliveryUpdates = v);
+                                _saveSettings();
+                              }
+                            : null,
+                      ),
+                    ],
                   ),
-                  _buildSwitchTile(
-                    icon: Icons.notifications,
-                    title: 'Enable Notifications',
-                    subtitle: 'Receive app notifications',
-                    value: _notificationsEnabled,
-                    onChanged: (v) {
-                      setState(() => _notificationsEnabled = v);
-                      _saveSettings();
-                    },
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    title: 'SOUND & VIBRATION',
+                    children: [
+                      _SwitchTile(
+                        icon: Icons.volume_up_outlined,
+                        title: 'Sound',
+                        subtitle: 'Play notification sounds',
+                        value: _soundEnabled,
+                        onChanged: (v) {
+                          setState(() => _soundEnabled = v);
+                          _saveSettings();
+                        },
+                      ),
+                      const _Divider(),
+                      _SwitchTile(
+                        icon: Icons.vibration_outlined,
+                        title: 'Vibration',
+                        subtitle: 'Vibrate on notifications',
+                        value: _vibrationEnabled,
+                        onChanged: (v) {
+                          setState(() => _vibrationEnabled = v);
+                          _saveSettings();
+                        },
+                      ),
+                    ],
                   ),
-                  const Divider(height: 1, indent: 72),
-                  _buildSwitchTile(
-                    icon: Icons.assignment,
-                    title: 'Order Notifications',
-                    subtitle: 'New order assignments',
-                    value: _orderNotifications,
-                    onChanged: _notificationsEnabled
-                        ? (v) {
-                            setState(() => _orderNotifications = v);
-                            _saveSettings();
-                          }
-                        : null,
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    title: 'APP DATA',
+                    children: [
+                      _ActionTile(
+                        icon: Icons.cleaning_services_outlined,
+                        title: 'Clear Cache',
+                        subtitle: 'Offline queue and recent searches',
+                        onTap: _showClearCacheDialog,
+                      ),
+                    ],
                   ),
-                  const Divider(height: 1, indent: 72),
-                  _buildSwitchTile(
-                    icon: Icons.local_shipping,
-                    title: 'Delivery Updates',
-                    subtitle: 'Status and tracking alerts',
-                    value: _deliveryUpdates,
-                    onChanged: _notificationsEnabled
-                        ? (v) {
-                            setState(() => _deliveryUpdates = v);
-                            _saveSettings();
-                          }
-                        : null,
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    title: 'ABOUT',
+                    children: [
+                      _ActionTile(
+                        icon: Icons.info_outline,
+                        title: 'About App',
+                        subtitle: 'Version and credits',
+                        onTap: _showAboutDialog,
+                      ),
+                    ],
                   ),
-                  // P5-2: Promotional Notifications tile removed.
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
+    );
+  }
+}
 
-            const SizedBox(height: 8),
+// ─── WIDGETS ────────────────────────────────────────────────────────────────
 
-            // ── Sound & Vibration ─────────────────────────────────────────
-            Container(
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Text(
-                      'SOUND & VIBRATION',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF617589),
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                  _buildSwitchTile(
-                    icon: Icons.volume_up,
-                    title: 'Sound',
-                    subtitle: 'Play notification sounds',
-                    value: _soundEnabled,
-                    onChanged: (v) {
-                      setState(() => _soundEnabled = v);
-                      _saveSettings();
-                    },
-                  ),
-                  const Divider(height: 1, indent: 72),
-                  _buildSwitchTile(
-                    icon: Icons.vibration,
-                    title: 'Vibration',
-                    subtitle: 'Vibrate on notifications',
-                    value: _vibrationEnabled,
-                    onChanged: (v) {
-                      setState(() => _vibrationEnabled = v);
-                      _saveSettings();
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                ],
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDBE0E6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF617589),
+                letterSpacing: 0.8,
               ),
             ),
-
-            const SizedBox(height: 8),
-
-            // ── App Data ──────────────────────────────────────────────────
-            Container(
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Text(
-                      'APP DATA',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF617589),
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                  _buildActionTile(
-                    icon: Icons.cleaning_services,
-                    title: 'Clear Cache',
-                    subtitle: 'Clears offline queue and recent searches',
-                    onTap: _showClearCacheDialog,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // ── About ─────────────────────────────────────────────────────
-            // P5-4: Privacy Policy and Terms of Service tiles removed.
-            //       They showed "Coming soon" snackbars — not production ready.
-            Container(
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Text(
-                      'ABOUT',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF617589),
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                  _buildActionTile(
-                    icon: Icons.info,
-                    title: 'About App',
-                    subtitle: 'Version and credits',
-                    onTap: _showAboutDialog,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 32),
-          ],
-        ),
+          ),
+          ...children,
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }
+}
 
-  // ─── TILE BUILDERS ────────────────────────────────────────────────────────
+class _SwitchTile extends StatelessWidget {
+  const _SwitchTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
 
-  Widget _buildSwitchTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required void Function(bool)? onChanged,
-  }) {
-    final isDisabled = onChanged == null;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onChanged == null;
     return SwitchListTile(
-      secondary: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: isDisabled
-              ? Colors.grey.shade200
-              : const Color(0xFF2B8CEE).withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          icon,
-          color: isDisabled ? Colors.grey : const Color(0xFF2B8CEE),
-          size: 20,
-        ),
-      ),
+      secondary: _IconBox(icon: icon, disabled: disabled),
       title: Text(
         title,
         style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: isDisabled ? Colors.grey : null,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: disabled ? Colors.grey : const Color(0xFF111418),
         ),
       ),
       subtitle: Text(
         subtitle,
         style: TextStyle(
           fontSize: 13,
-          color: isDisabled ? Colors.grey : const Color(0xFF617589),
+          color: disabled ? Colors.grey.shade400 : const Color(0xFF617589),
         ),
       ),
       value: value,
       onChanged: onChanged,
-      // Replaced deprecated activeColor with activeThumbColor (P5-2 bonus fix).
-      activeThumbColor: const Color(0xFF2B8CEE),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      activeColor: const Color(0xFF2B8CEE),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     );
   }
+}
 
-  Widget _buildActionTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2B8CEE).withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(icon, color: const Color(0xFF2B8CEE), size: 20),
-      ),
+      leading: const _IconBox(icon: Icons.cleaning_services_outlined),
       title: Text(
         title,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
       ),
       subtitle: Text(
         subtitle,
         style: const TextStyle(fontSize: 13, color: Color(0xFF617589)),
       ),
-      trailing:
-          const Icon(Icons.chevron_right, color: Color(0xFF617589)),
+      trailing: const Icon(Icons.chevron_right, color: Color(0xFF617589)),
       onTap: onTap,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    );
+  }
+}
+
+class _IconBox extends StatelessWidget {
+  const _IconBox({required this.icon, this.disabled = false});
+
+  final IconData icon;
+  final bool disabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: disabled
+            ? Colors.grey.shade200
+            : const Color(0xFF2B8CEE).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(
+        icon,
+        color: disabled ? Colors.grey : const Color(0xFF2B8CEE),
+        size: 20,
+      ),
+    );
+  }
+}
+
+class _Divider extends StatelessWidget {
+  const _Divider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Divider(height: 1, indent: 72, color: Color(0xFFDBE0E6));
+  }
+}
+
+class _SettingsSkeleton extends StatelessWidget {
+  const _SettingsSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _SkeletonCard(height: 220),
+          const SizedBox(height: 12),
+          _SkeletonCard(height: 140),
+          const SizedBox(height: 12),
+          _SkeletonCard(height: 80),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonCard extends StatelessWidget {
+  const _SkeletonCard({required this.height});
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(16),
+      ),
     );
   }
 }

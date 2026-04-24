@@ -1,15 +1,8 @@
 // lib/features/main_shell.dart
-// IndexedStack shell — all 5 tabs are kept alive in memory.
-// Screens are built once on first visit and never destroyed on tab switch.
-//
-// BACK BUTTON HANDLING (Android):
-//   • If not on tab 0 → switch back to tab 0 (Orders).
-//   • If already on tab 0 → minimize the app (SystemNavigator.pop).
-//   This prevents the "/route not found" error that occurred when Flutter tried
-//   to pop a route that didn't exist below the shell.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '/features/orders/screens/pending_orders_screen.dart';
 import '/features/orders/screens/delivered_orders_screen.dart';
 import '/features/sticky_notes/screens/sticky_notes_list_screen.dart';
@@ -26,71 +19,92 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  // All screens instantiated once and kept alive by IndexedStack.
-  static const List<Widget> _screens = [
-    PendingOrdersScreen(),
-    DeliveredOrdersScreen(),
-    StickyNotesListScreen(),
-    GoToScreen(),
-    ProfileScreen(),
+  // Keep screens alive (DO NOT CHANGE)
+  final List<Widget> _screens = const [
+    PendingOrdersScreen(key: PageStorageKey('pending_orders')),
+    DeliveredOrdersScreen(key: PageStorageKey('delivered_orders')),
+    StickyNotesListScreen(key: PageStorageKey('sticky_notes')),
+    GoToScreen(key: PageStorageKey('go_to')),
+    ProfileScreen(key: PageStorageKey('profile')),
   ];
 
-  // ─── BACK BUTTON ──────────────────────────────────────────────────────────
-  //
-  // canPop: false — we always intercept. Flutter will never pop the shell off
-  // the stack automatically; we decide what to do.
-  void _onPopInvoked(bool didPop) {
-    if (didPop) return; // already handled (shouldn't happen with canPop:false)
-
-    if (_currentIndex != 0) {
-      // Not on home tab → go back to Orders tab.
-      setState(() => _currentIndex = 0);
-    } else {
-      // Already on Orders → minimize the app.
-      SystemNavigator.pop();
+  void _onTap(int index) {
+    if (_currentIndex != index) {
+      setState(() => _currentIndex = index);
     }
   }
 
+  // BACK BUTTON HANDLING
+  void _onPopInvoked(bool didPop) {
+    if (didPop) return;
+
+    if (_currentIndex != 0) {
+      setState(() => _currentIndex = 0);
+    } else {
+      if (Theme.of(context).platform == TargetPlatform.android) {
+        SystemNavigator.pop();
+      }
+    }
+  }
+
+  bool _isTablet(BuildContext context) =>
+      MediaQuery.of(context).size.width >= 600;
+
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).primaryColor;
+    final theme = Theme.of(context);
+    final isTablet = _isTablet(context);
 
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) => _onPopInvoked(didPop),
       child: Scaffold(
-        body: IndexedStack(
-          index: _currentIndex,
-          children: _screens,
+        body: SafeArea(
+          child: Row(
+            children: [
+              if (isTablet)
+                _SideNavRail(
+                  currentIndex: _currentIndex,
+                  onTap: _onTap,
+                ),
+              Expanded(
+                child: IndexedStack(
+                  index: _currentIndex,
+                  children: _screens
+                      .map((screen) =>
+                          RepaintBoundary(child: screen))
+                      .toList(),
+                ),
+              ),
+            ],
+          ),
         ),
-        bottomNavigationBar: _BottomNav(
-          currentIndex: _currentIndex,
-          primary: primary,
-          onTap: (index) {
-            if (_currentIndex != index) {
-              setState(() => _currentIndex = index);
-            }
-          },
-        ),
+        bottomNavigationBar: isTablet
+            ? null
+            : _BottomNav(
+                currentIndex: _currentIndex,
+                onTap: _onTap,
+                theme: theme,
+              ),
       ),
     );
   }
 }
 
-// ─── Bottom navigation bar extracted to its own widget ───────────────────────
-// Using a separate StatelessWidget means the shell body never rebuilds just
-// because we tapped a tab — only the IndexedStack's active child repaints.
+////////////////////////////////////////////////////////////
+/// 🔻 BOTTOM NAV (PHONES)
+////////////////////////////////////////////////////////////
 
 class _BottomNav extends StatelessWidget {
   const _BottomNav({
     required this.currentIndex,
-    required this.primary,
     required this.onTap,
+    required this.theme,
   });
 
   final int currentIndex;
-  final Color primary;
   final ValueChanged<int> onTap;
+  final ThemeData theme;
 
   static const _items = [
     (Icons.assignment_outlined, Icons.assignment, 'Orders'),
@@ -104,10 +118,10 @@ class _BottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.colorScheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
+            color: theme.shadowColor.withValues(alpha: 0.08),
             blurRadius: 12,
             offset: const Offset(0, -2),
           ),
@@ -115,17 +129,17 @@ class _BottomNav extends StatelessWidget {
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(_items.length, (index) {
               final active = currentIndex == index;
               final (outlinedIcon, filledIcon, label) = _items[index];
+
               return _NavItem(
                 icon: active ? filledIcon : outlinedIcon,
                 label: label,
                 active: active,
-                primary: primary,
                 onTap: () => onTap(index),
               );
             }),
@@ -136,54 +150,121 @@ class _BottomNav extends StatelessWidget {
   }
 }
 
+////////////////////////////////////////////////////////////
+/// 🔻 NAV ITEM (ANIMATED)
+////////////////////////////////////////////////////////////
+
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.icon,
     required this.label,
     required this.active,
-    required this.primary,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
   final bool active;
-  final Color primary;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: active ? primary.withValues(alpha: 0.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          color: active
+              ? theme.colorScheme.primary.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: active ? primary : Colors.grey.shade500,
-              size: 22,
+            AnimatedScale(
+              scale: active ? 1.1 : 1.0,
+              duration: const Duration(milliseconds: 200),
+              child: Icon(
+                icon,
+                size: 22,
+                color: active
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 4),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 10,
+              style: theme.textTheme.labelSmall?.copyWith(
                 fontWeight:
                     active ? FontWeight.bold : FontWeight.w500,
-                color: active ? primary : Colors.grey.shade500,
+                color: active
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+////////////////////////////////////////////////////////////
+/// 🔻 SIDE NAV (TABLETS)
+////////////////////////////////////////////////////////////
+
+class _SideNavRail extends StatelessWidget {
+  const _SideNavRail({
+    required this.currentIndex,
+    required this.onTap,
+  });
+
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+
+  static const _items = [
+    (Icons.assignment_outlined, Icons.assignment, 'Orders'),
+    (Icons.history_outlined, Icons.history, 'Delivered'),
+    (Icons.sticky_note_2_outlined, Icons.sticky_note_2, 'Notes'),
+    (Icons.directions_outlined, Icons.directions, 'Go To'),
+    (Icons.person_outline, Icons.person, 'Profile'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return NavigationRail(
+      selectedIndex: currentIndex,
+      onDestinationSelected: onTap,
+      backgroundColor: theme.colorScheme.surface,
+      selectedIconTheme: IconThemeData(
+        color: theme.colorScheme.primary,
+      ),
+      unselectedIconTheme: IconThemeData(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+      selectedLabelTextStyle: TextStyle(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.bold,
+      ),
+      unselectedLabelTextStyle: TextStyle(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+      destinations: _items.map((item) {
+        final (outlinedIcon, filledIcon, label) = item;
+        return NavigationRailDestination(
+          icon: Icon(outlinedIcon),
+          selectedIcon: Icon(filledIcon),
+          label: Text(label),
+        );
+      }).toList(),
     );
   }
 }

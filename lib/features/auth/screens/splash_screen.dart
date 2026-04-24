@@ -19,8 +19,8 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _floatAnimation;
+  late final AnimationController _floatController;
+  late final Animation<double> _floatAnimation;
 
   @override
   void initState() {
@@ -28,20 +28,21 @@ class _SplashScreenState extends State<SplashScreen>
 
     FlutterNativeSplash.remove();
 
-    _controller = AnimationController(
+    _floatController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
     )..repeat(reverse: true);
 
     _floatAnimation = Tween<double>(begin: 0, end: -12).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+      CurvedAnimation(parent: _floatController, curve: Curves.easeInOut),
     );
 
-    // Initialise background service asynchronously so the splash renders
-    // immediately. By the time the user logs in, it is long ready.
     unawaited(BackgroundLocationService.initialize());
 
-    _handleNavigation();
+    // ✅ FIX: Defer navigation until after the first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleNavigation();
+    });
   }
 
   Future<void> _handleNavigation() async {
@@ -55,7 +56,6 @@ class _SplashScreenState extends State<SplashScreen>
     switch (authProvider.status) {
       case AuthStatus.authenticated:
         Navigator.pushReplacementNamed(context, AppRoutes.main);
-        break;
       case AuthStatus.pending:
       case AuthStatus.rejected:
       case AuthStatus.unauthenticated:
@@ -66,7 +66,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _floatController.dispose();
     super.dispose();
   }
 
@@ -85,77 +85,80 @@ class _SplashScreenState extends State<SplashScreen>
             colors: [Color(0xFFE0F2FE), Color(0xFFFDF2F8), Color(0xFFFEFCE8)],
           ),
         ),
-        child: Column(
-          children: [
-            const SizedBox(height: 80),
+        child: SafeArea(
+          // ✅ FIX: Replaces hardcoded 80px top padding
+          child: Column(
+            children: [
+              const Spacer(flex: 2),
 
-            AnimatedBuilder(
-              animation: _floatAnimation,
-              builder: (_, child) => Transform.translate(
-                offset: Offset(0, _floatAnimation.value),
-                child: child,
-              ),
-              child: const _GlassLogoCard(),
-            ),
-
-            const SizedBox(height: 40),
-
-            Column(
-              children: [
-                Text(
-                  'Scoop & Go',
-                  style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
-                      ),
+              AnimatedBuilder(
+                animation: _floatAnimation,
+                builder: (context, child) => Transform.translate(
+                  offset: Offset(0, _floatAnimation.value),
+                  child: child,
                 ),
-                const SizedBox(height: 6),
-                Container(
-                  height: 4,
-                  width: 48,
-                  decoration: BoxDecoration(
-                    color: primary,
-                    borderRadius: BorderRadius.circular(8),
+                child: const _GlassLogoCard(),
+              ),
+
+              const SizedBox(height: 40),
+
+              Column(
+                children: [
+                  Text(
+                    'Scoop & Go',
+                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                        ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'DELIVERY PARTNER',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        letterSpacing: 3,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ],
-            ),
-
-            const Spacer(),
-
-            Column(
-              children: [
-                const AnimatedLoaderBar(),
-                const SizedBox(height: 12),
-                Text(
-                  'SYNCING COLD CHAIN',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        letterSpacing: 2,
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 40),
-            Container(
-              height: 6,
-              width: 140,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(100),
+                  const SizedBox(height: 6),
+                  Container(
+                    height: 4,
+                    width: 48,
+                    decoration: BoxDecoration(
+                      color: primary,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'DELIVERY PARTNER',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          letterSpacing: 3,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 30),
-          ],
+
+              const Spacer(flex: 3),
+
+              Column(
+                children: [
+                  const _AnimatedLoaderBar(),
+                  const SizedBox(height: 12),
+                  Text(
+                    'SYNCING COLD CHAIN',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          letterSpacing: 2,
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 40),
+              Container(
+                height: 6,
+                width: 140,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );
@@ -249,16 +252,16 @@ class _GlassLogoCard extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-class AnimatedLoaderBar extends StatefulWidget {
-  const AnimatedLoaderBar({super.key});
+class _AnimatedLoaderBar extends StatefulWidget {
+  const _AnimatedLoaderBar();
 
   @override
-  State<AnimatedLoaderBar> createState() => _AnimatedLoaderBarState();
+  State<_AnimatedLoaderBar> createState() => _AnimatedLoaderBarState();
 }
 
-class _AnimatedLoaderBarState extends State<AnimatedLoaderBar>
+class _AnimatedLoaderBarState extends State<_AnimatedLoaderBar>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  late final AnimationController _controller;
 
   @override
   void initState() {
@@ -292,8 +295,8 @@ class _AnimatedLoaderBarState extends State<AnimatedLoaderBar>
           ),
           AnimatedBuilder(
             animation: _controller,
-            // Using _ instead of __ to satisfy unnecessary_underscores lint
-            builder: (_, child) => Positioned(
+            // ✅ FIX: Proper context parameter name (no lint suppression needed)
+            builder: (context, child) => Positioned(
               left: (140 * _controller.value) - 60,
               child: Container(
                 width: 60,
