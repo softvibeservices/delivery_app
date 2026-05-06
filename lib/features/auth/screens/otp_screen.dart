@@ -1,3 +1,5 @@
+// lib/features/auth/screens/otp_screen.dart
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -104,8 +106,23 @@ class _OtpScreenState extends State<OtpScreen> {
     }
   }
 
+  // ── Resend OTP with improved error handling ──────────────────────────────
+
   Future<void> _resendOtp() async {
     final auth = context.read<AuthProvider>();
+
+    // Guard: if there's no active session, redirect to login immediately
+    if (auth.partnerId == null) {
+      _showSnackBar(
+        'Session expired. Please login again.',
+        isError: true,
+      );
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
+      }
+      return;
+    }
 
     _showSnackBar('Sending new OTP...');
 
@@ -115,6 +132,15 @@ class _OtpScreenState extends State<OtpScreen> {
 
     if (error != null) {
       _showSnackBar(error, isError: true);
+
+      // If the session is fully expired, bounce back to login after a brief delay
+      if (error.toLowerCase().contains('session expired') ||
+          error.toLowerCase().contains('login again')) {
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, AppRoutes.login);
+        }
+      }
       return;
     }
 
@@ -131,17 +157,20 @@ class _OtpScreenState extends State<OtpScreen> {
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor:
+              isError ? Colors.red.shade700 : Colors.green.shade700,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.all(16),
         ),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
+      );
   }
 
   void _onOtpChanged(int index, String value) {

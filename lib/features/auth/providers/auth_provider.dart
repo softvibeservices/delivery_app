@@ -27,6 +27,11 @@ class AuthProvider extends ChangeNotifier {
 
   bool get isLocationTracking => _locationService.isTracking;
 
+  // ── In-memory login credentials for OTP resend (Option A) ────────────────
+  // Stored only in RAM — never persisted to disk.
+  String? _loginEmail;
+  String? _loginPassword;
+
   // ─── Session force-logout listener ────────────────────────────────────────
   StreamSubscription<void>? _forceLogoutSub;
 
@@ -71,14 +76,6 @@ class AuthProvider extends ChangeNotifier {
   //
   // Called on app cold-start (SplashScreen) AND on every app-resume
   // (MainShell's WidgetsBindingObserver).
-  //
-  // FIX: Previously the catch block only printed errors.
-  //   • 404 → partner record no longer exists → force logout
-  //   • 403 → partner forbidden / account flagged → force logout
-  //   • backend status == 'deleted' → force logout
-  //   All three now call _forceLogoutDeleted() which clears storage,
-  //   stops tracking, and fires the SessionService event so MainShell
-  //   navigates the user to the welcome screen.
 
   Future<void> checkAccountStatus() async {
     try {
@@ -106,8 +103,6 @@ class AuthProvider extends ChangeNotifier {
         final backendStatus = partner['status'] as String;
         debugPrint('✅ Backend status: $backendStatus');
 
-        // A backend-side deletion may surface as status == 'deleted' rather
-        // than a 404 if the record is soft-deleted.
         if (backendStatus == 'deleted' || backendStatus == 'deactivated') {
           debugPrint('🔐 Account deleted/deactivated on backend — forcing logout');
           await _forceLogoutDeleted();
@@ -133,8 +128,6 @@ class AuthProvider extends ChangeNotifier {
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
 
-      // ── FIX: 404 = partner record gone; 403 = account-level block ─────────
-      // Both mean the user should no longer have app access.
       if (statusCode == 404 || statusCode == 403) {
         debugPrint(
           '🔐 checkAccountStatus: $statusCode — account not found / forbidden. Forcing logout.',
@@ -143,8 +136,6 @@ class AuthProvider extends ChangeNotifier {
         return;
       }
 
-      // Any other network error (timeout, no internet) → don't logout;
-      // the user may just be offline.
       debugPrint('⚠️ checkAccountStatus error (non-fatal): ${e.type} ${e.message}');
     } catch (e) {
       debugPrint('⚠️ checkAccountStatus unexpected error: $e');
@@ -155,10 +146,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ─── FORCE LOGOUT (deleted account) ──────────────────────────────────────
-  //
-  // Shared helper used by checkAccountStatus() and potentially any future
-  // place that detects a non-recoverable account state.
-  // Fires SessionService so MainShell's listener triggers navigation.
 
   Future<void> _forceLogoutDeleted() async {
     await _stopLocationTracking();
@@ -166,9 +153,10 @@ class AuthProvider extends ChangeNotifier {
     await StorageService.clearAuthKeys();
     _status = AuthStatus.unauthenticated;
     _partnerId = null;
+    _loginEmail = null;
+    _loginPassword = null;
     _isLoading = false;
     notifyListeners();
-    // Fires the stream → MainShell listener → navigates to /welcome
     SessionService.instance.triggerForceLogout();
   }
 
@@ -190,6 +178,11 @@ class AuthProvider extends ChangeNotifier {
       );
 
       debugPrint('✅ Login response: ${response.data}');
+
+      // ── Store credentials in-memory for OTP resend (Option A) ────────────
+      // Only held in RAM — cleared on logout or force-logout.
+      _loginEmail = email;
+      _loginPassword = password;
 
       _partnerId = response.data['partnerId'];
       await StorageService.savePartnerId(_partnerId!);
@@ -226,6 +219,13 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ─── RESEND OTP ───────────────────────────────────────────────────────────
+  //
+  // FIX: The original code called loginOtp with only partnerId, but that
+  // endpoint requires email + password. We now re-send the full credentials
+  // that were captured in-memory during login().
+  //
+  // If a dedicated /auth/resend-otp endpoint becomes available on the backend,
+  // switch to ApiEndpoints.resendOtp and send only partnerId (Option B).
 
   Future<String?> resendOtp() async {
     try {
@@ -236,11 +236,20 @@ class AuthProvider extends ChangeNotifier {
         return 'Session expired. Please login again.';
       }
 
+      if (_loginEmail == null || _loginPassword == null) {
+        // Credentials were cleared — guard against edge cases.
+        return 'Session expired. Please login again.';
+      }
+
       debugPrint('🔄 Resending OTP for partner: $_partnerId');
 
+      // Option A: re-post full login credentials to get a fresh OTP.
       await _apiService.dio.post(
         ApiEndpoints.loginOtp,
-        data: {'partnerId': _partnerId},
+        data: {
+          'email': _loginEmail,
+          'password': _loginPassword,
+        },
       );
 
       debugPrint('✅ OTP resent successfully');
@@ -304,6 +313,10 @@ class AuthProvider extends ChangeNotifier {
         unawaited(FCMService.instance.sendTokenAfterLogin());
       }
 
+      // Clear in-memory credentials after successful login — no longer needed.
+      _loginEmail = null;
+      _loginPassword = null;
+
       notifyListeners();
       return null;
     } catch (e) {
@@ -318,17 +331,42 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // ─── FORGOT PASSWORD ──────────────────────────────────────────────────────
+
+  Future<String?> forgotPassword({required String email}) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _apiService.dio.post(
+        ApiEndpoints.forgotPassword,
+        data: {'email': email},
+      );
+
+      return null;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return 'No account found with that email';
+      return e.response?.data['error'] ?? 'Failed to send reset email';
+    } catch (_) {
+      return 'Something went wrong. Please try again.';
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   // ─── LOGOUT ───────────────────────────────────────────────────────────────
 
   Future<void> logout() async {
-    // Capture the token BEFORE clearing storage — clearToken() needs it.
     final sessionToken = await StorageService.getToken();
     await _stopLocationTracking();
-    // Clear FCM token on backend so no more pushes arrive after logout.
     await FCMService.instance.clearToken(sessionToken: sessionToken ?? '');
     await StorageService.clearAuthKeys();
     _status = AuthStatus.unauthenticated;
     _partnerId = null;
+    _loginEmail = null;
+    _loginPassword = null;
     notifyListeners();
   }
 

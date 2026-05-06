@@ -1,4 +1,7 @@
+// lib/features/auth/screens/home_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../config/routes.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -93,8 +96,9 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 24),
+                    // ── "Need help?" support button ──────────────────────
                     TextButton.icon(
-                      onPressed: () {},
+                      onPressed: () => _showSupportDialog(context),
                       icon: Icon(
                         Icons.help_outline,
                         size: 16,
@@ -114,6 +118,51 @@ class HomeScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showSupportDialog(BuildContext context) {
+    final primary = Theme.of(context).primaryColor;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.support_agent, color: primary),
+            const SizedBox(width: 12),
+            const Text('Contact Support'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Need help? Reach out to us at:'),
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () => launchUrl(
+                Uri.parse('mailto:support@softvibeservices.com'),
+              ),
+              child: Text(
+                'support@softvibeservices.com',
+                style: TextStyle(
+                  color: primary,
+                  decoration: TextDecoration.underline,
+                  decorationColor: primary,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }

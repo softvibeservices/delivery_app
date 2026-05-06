@@ -1,3 +1,5 @@
+// lib/features/auth/screens/login_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../config/routes.dart';
@@ -118,6 +120,34 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ── Forgot Password ─────────────────────────────────────────────────────
+
+  void _showForgotPasswordSheet(BuildContext context) {
+    final emailCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(ctx).bottom,
+        ),
+        child: _ForgotPasswordSheet(
+          emailController: emailCtrl,
+          onSuccess: () {
+            Navigator.pop(ctx);
+            _showSnackBar('Check your email for reset instructions.');
+          },
+          onError: (msg) {
+            // Error is shown inside the sheet itself; nothing to do here.
+          },
+        ),
       ),
     );
   }
@@ -253,12 +283,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
+                        // ── Forgot Password → bottom sheet ──────────────
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: () => _showSnackBar(
-                              'Contact admin to reset password',
-                            ),
+                            onPressed: () => _showForgotPasswordSheet(context),
                             style: TextButton.styleFrom(
                               foregroundColor: Colors.grey.shade700,
                               padding: EdgeInsets.zero,
@@ -357,20 +386,20 @@ class _LoginScreenState extends State<LoginScreen> {
       hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
       prefixIcon: Icon(
         prefixIcon,
-        color: Colors.grey.shade600, // darker icon
+        color: Colors.grey.shade600,
         size: 20,
       ),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: Colors.grey.shade100, // slightly darker fill vs shade50
+      fillColor: Colors.grey.shade100,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade400), // darker
+        borderSide: BorderSide(color: Colors.grey.shade400),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade400), // darker
+        borderSide: BorderSide(color: Colors.grey.shade400),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -387,6 +416,184 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
+// ── Forgot Password Bottom Sheet ───────────────────────────────────────────
+
+class _ForgotPasswordSheet extends StatefulWidget {
+  final TextEditingController emailController;
+  final VoidCallback onSuccess;
+  final void Function(String error) onError;
+
+  const _ForgotPasswordSheet({
+    required this.emailController,
+    required this.onSuccess,
+    required this.onError,
+  });
+
+  @override
+  State<_ForgotPasswordSheet> createState() => _ForgotPasswordSheetState();
+}
+
+class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
+  final _sheetFormKey = GlobalKey<FormState>();
+  bool _isLoading = false;
+  String? _errorText;
+
+  Future<void> _submit() async {
+    if (!(_sheetFormKey.currentState?.validate() ?? false)) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorText = null;
+    });
+
+    final auth = context.read<AuthProvider>();
+    final error = await auth.forgotPassword(
+      email: widget.emailController.text.trim(),
+    );
+
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    if (error != null) {
+      setState(() => _errorText = error);
+      return;
+    }
+
+    widget.onSuccess();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).primaryColor;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+      child: Form(
+        key: _sheetFormKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle bar
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              'Reset Password',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Enter your account email and we\'ll send you a reset link.',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+            ),
+            const SizedBox(height: 24),
+            TextFormField(
+              controller: widget.emailController,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _submit(),
+              autofocus: true,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return 'Enter your email';
+                final regex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                if (!regex.hasMatch(v.trim())) return 'Enter a valid email';
+                return null;
+              },
+              decoration: InputDecoration(
+                hintText: 'you@example.com',
+                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                prefixIcon: Icon(
+                  Icons.email_outlined,
+                  color: Colors.grey.shade600,
+                  size: 20,
+                ),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade400),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.grey.shade400),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: primary, width: 2),
+                ),
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.red.shade400),
+                ),
+                focusedErrorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.red.shade500, width: 2),
+                ),
+              ),
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _errorText!,
+                style: TextStyle(color: Colors.red.shade600, fontSize: 13),
+              ),
+            ],
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primary,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: primary.withValues(alpha: 0.4),
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Send Reset Link'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Shared label widget ────────────────────────────────────────────────────
 
 class _FieldLabel extends StatelessWidget {
   final String text;

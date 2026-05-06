@@ -1,3 +1,5 @@
+// lib/features/auth/screens/register_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../config/routes.dart';
@@ -25,6 +27,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordFocus = FocusNode();
 
   bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen to password changes to update strength bar in real time
+    _passwordController.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
@@ -142,6 +151,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // ── Full Name (min 2 chars) ────────────────────
                         _buildTextField(
                           label: 'Full Name',
                           hintText: 'e.g. Rahul Sharma',
@@ -149,10 +159,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           focusNode: _nameFocus,
                           nextFocus: _emailFocus,
                           icon: Icons.person_outline,
-                          validator: (v) =>
-                              v == null || v.trim().isEmpty ? 'Required' : null,
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) {
+                              return 'Name is required';
+                            }
+                            if (v.trim().length < 2) {
+                              return 'Name must be at least 2 characters';
+                            }
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 16),
+
+                        // ── Email ─────────────────────────────────────
                         _buildTextField(
                           label: 'Email',
                           hintText: 'you@example.com',
@@ -175,6 +194,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           },
                         ),
                         const SizedBox(height: 16),
+
+                        // ── Phone (10-digit Indian format) ────────────
                         _buildTextField(
                           label: 'Phone (+91)',
                           hintText: '98765 43210',
@@ -183,10 +204,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           nextFocus: _adminEmailFocus,
                           icon: Icons.phone_outlined,
                           keyboardType: TextInputType.phone,
-                          validator: (v) =>
-                              v == null || v.trim().isEmpty ? 'Required' : null,
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return 'Required';
+                            final digits = v.replaceAll(RegExp(r'\D'), '');
+                            if (digits.length < 10) {
+                              return 'Enter a valid 10-digit number';
+                            }
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 16),
+
+                        // ── Admin Email ───────────────────────────────
                         _buildTextField(
                           label: 'Admin Email',
                           hintText: 'admin@yourcompany.com',
@@ -209,6 +238,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           },
                         ),
                         const SizedBox(height: 16),
+
+                        // ── Password with strength bar ─────────────────
                         _FieldLabel('Password'),
                         const SizedBox(height: 8),
                         TextFormField(
@@ -230,6 +261,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             context: context,
                             hintText: '••••••',
                             prefixIcon: Icons.lock_outline,
+                            helperText: 'Minimum 6 characters',
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscurePassword
@@ -244,6 +276,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 8),
+
+                        // ── Password strength bar ─────────────────────
+                        _PasswordStrengthBar(
+                          password: _passwordController.text,
+                        ),
+
                         const SizedBox(height: 16),
                         Container(
                           padding: const EdgeInsets.all(12),
@@ -353,7 +392,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Widget _buildTextField({
     required String label,
-    required String hintText, // ADD THIS
+    required String hintText,
     required TextEditingController controller,
     required FocusNode focusNode,
     FocusNode? nextFocus,
@@ -383,7 +422,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           validator: validator,
           decoration: _inputDecoration(
             context: context,
-            hintText: hintText, // PASS IT THROUGH
+            hintText: hintText,
             prefixIcon: icon,
           ),
         ),
@@ -396,28 +435,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
     required String hintText,
     required IconData prefixIcon,
     Widget? suffixIcon,
+    String? helperText,
   }) {
     final primary = Theme.of(context).primaryColor;
 
     return InputDecoration(
       hintText: hintText,
       hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+      helperText: helperText,
+      helperStyle: TextStyle(color: Colors.grey.shade500, fontSize: 12),
       prefixIcon: Icon(
         prefixIcon,
-        color: Colors.grey.shade600, // darker icon
+        color: Colors.grey.shade600,
         size: 20,
       ),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: Colors.grey.shade100, // slightly darker fill vs shade50
+      fillColor: Colors.grey.shade100,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade400), // darker
+        borderSide: BorderSide(color: Colors.grey.shade400),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade400), // darker
+        borderSide: BorderSide(color: Colors.grey.shade400),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -434,6 +476,78 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 }
+
+// ── Password Strength Bar ──────────────────────────────────────────────────
+
+/// Returns 0 (empty), 1 (weak), 2 (medium), or 3 (strong).
+int _getPasswordStrength(String password) {
+  if (password.isEmpty) return 0;
+  if (password.length < 6) return 1;
+
+  final hasUpper = RegExp(r'[A-Z]').hasMatch(password);
+  final hasLower = RegExp(r'[a-z]').hasMatch(password);
+  final hasDigit = RegExp(r'\d').hasMatch(password);
+  final hasSymbol = RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-+=]').hasMatch(password);
+  final hasMixed = (hasUpper && hasLower) || hasDigit;
+
+  if (password.length >= 10 && hasSymbol && hasMixed) return 3;
+  if (password.length >= 6 && hasMixed) return 2;
+  return 1;
+}
+
+class _PasswordStrengthBar extends StatelessWidget {
+  final String password;
+  const _PasswordStrengthBar({required this.password});
+
+  @override
+  Widget build(BuildContext context) {
+    final strength = _getPasswordStrength(password);
+
+    if (password.isEmpty) return const SizedBox.shrink();
+
+    final labels = ['', 'Weak', 'Medium', 'Strong'];
+    final colors = [
+      Colors.transparent,
+      Colors.red.shade400,
+      Colors.orange.shade400,
+      Colors.green.shade500,
+    ];
+    final activeColor = colors[strength];
+    final label = labels[strength];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: List.generate(3, (i) {
+            final segmentFilled = i < strength;
+            return Expanded(
+              child: Container(
+                height: 4,
+                margin: EdgeInsets.only(right: i < 2 ? 4 : 0),
+                decoration: BoxDecoration(
+                  color: segmentFilled ? activeColor : Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: activeColor,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Shared label widget ────────────────────────────────────────────────────
 
 class _FieldLabel extends StatelessWidget {
   final String text;

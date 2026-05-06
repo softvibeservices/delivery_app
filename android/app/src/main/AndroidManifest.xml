@@ -1,5 +1,5 @@
 <!-- android/app/src/main/AndroidManifest.xml -->
-<!-- UPDATED for Group 7: added POST_NOTIFICATIONS permission for Android 13+ -->
+<!-- UPDATED: added POST_NOTIFICATIONS, FCM, and mailto query intent -->
 
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -16,13 +16,13 @@
     <!-- Wake Lock (for background tracking) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- ✅ NEW: Push notification permission (Android 13 / API 33+) -->
+    <!-- Push notification permission (Android 13 / API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- ✅ NEW: Required to receive FCM data messages in background -->
+    <!-- Required to receive FCM data messages in background -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Phone / Maps intent queries -->
+    <!-- Intent queries: phone, browser, text process, and mailto (url_launcher) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.DIAL" />
@@ -34,6 +34,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
+        </intent>
+        <!-- Required for url_launcher mailto: links -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="mailto" />
         </intent>
     </queries>
 
@@ -48,7 +53,7 @@
             android:exported="false"
             tools:replace="android:exported" />
 
-        <!-- ✅ NEW: FCM background message handler -->
+        <!-- FCM background message handler -->
         <service
             android:name="com.google.firebase.messaging.FirebaseMessagingService"
             android:exported="false">

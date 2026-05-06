@@ -45,11 +45,14 @@
 		<true/>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
+		<!-- URL schemes that url_launcher is allowed to open -->
 		<key>LSApplicationQueriesSchemes</key>
 		<array>
 			<string>tel</string>
 			<string>https</string>
 			<string>comgooglemaps</string>
+			<!-- Required for url_launcher mailto: support -->
+			<string>mailto</string>
 		</array>
 		<key>UIStatusBarHidden</key>
 		<true/>

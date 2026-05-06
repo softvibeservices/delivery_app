@@ -13,6 +13,16 @@ class ApiEndpoints {
   static const String verifyOtp = '/api/delivery/verify-otp';
   static const String checkStatus = '/api/delivery/check-status';
 
+  /// Sends a password-reset email. POST body: { email: String }
+  /// ⚠️ Confirm the exact path with your backend team before going live.
+  static const String forgotPassword = '/api/delivery/auth/forgot-password';
+
+  /// Dedicated OTP resend endpoint (Option B — requires backend support).
+  /// POST body: { partnerId: String }
+  /// Uncomment and use this in resendOtp() once the backend exposes it,
+  /// then remove the in-memory credential workaround in auth_provider.dart.
+  // static const String resendOtp = '/api/delivery/auth/resend-otp';
+
   // 📦 Orders
   static const String pendingOrders = '/api/delivery/orders';
   static const String deliveredOrders = '/api/delivery/delivered-orders';
