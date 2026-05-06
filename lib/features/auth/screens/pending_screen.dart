@@ -1,16 +1,87 @@
+// lib/features/auth/screens/pending_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../config/routes.dart';
 import '../providers/auth_provider.dart';
 
-class PendingApprovalScreen extends StatelessWidget {
+class PendingApprovalScreen extends StatefulWidget {
+  // ← StatefulWidget now
   const PendingApprovalScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  State<PendingApprovalScreen> createState() => _PendingApprovalScreenState();
+}
+
+class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
+  bool _isChecking = false;
+
+  Future<void> _checkStatus() async {
+    if (_isChecking) return;
+
+    // Capture messenger BEFORE any async gap
+    final messenger = ScaffoldMessenger.of(context);
     final auth = context.read<AuthProvider>();
+
+    setState(() => _isChecking = true);
+
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            ),
+            SizedBox(width: 12),
+            Text('Checking account status...'),
+          ],
+        ),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    await auth.checkAccountStatus();
+
+    if (!mounted) return; // Safe in StatefulWidget
+    setState(() => _isChecking = false);
+
+    if (auth.status == AuthStatus.authenticated) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Account approved! Redirecting...'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
+      // ← FIX: was AppRoutes.login (wrong!), now AppRoutes.main
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.main, (_) => false);
+    } else if (auth.status == AuthStatus.rejected) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Account has been rejected. Contact admin.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Still pending approval'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final primary = theme.primaryColor;
+    final auth = context.read<AuthProvider>();
 
     return Scaffold(
       body: SafeArea(
@@ -95,7 +166,18 @@ class PendingApprovalScreen extends StatelessWidget {
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton.icon(
-                      onPressed: () async => _checkStatus(context, auth),
+                      onPressed: _isChecking ? null : _checkStatus,
+                      icon: _isChecking
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.refresh, size: 20),
+                      label: Text(_isChecking ? 'Checking...' : 'Check Status'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primary,
                         foregroundColor: Colors.white,
@@ -109,8 +191,6 @@ class PendingApprovalScreen extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      icon: const Icon(Icons.refresh, size: 20),
-                      label: const Text('Check Status'),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -177,59 +257,5 @@ class PendingApprovalScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _checkStatus(BuildContext context, AuthProvider auth) async {
-    final messenger = ScaffoldMessenger.of(context);
-
-    messenger.showSnackBar(
-      const SnackBar(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 2,
-              ),
-            ),
-            SizedBox(width: 12),
-            Text('Checking account status...'),
-          ],
-        ),
-        duration: Duration(seconds: 2),
-      ),
-    );
-
-    await auth.checkAccountStatus();
-
-    if (!context.mounted) return;
-
-    if (auth.status == AuthStatus.authenticated) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Account approved! Redirecting...'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (!context.mounted) return;
-      Navigator.pushReplacementNamed(context, AppRoutes.login);
-    } else if (auth.status == AuthStatus.rejected) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Account has been rejected. Contact admin.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } else {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Still pending approval'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
   }
 }

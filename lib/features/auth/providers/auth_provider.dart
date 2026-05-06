@@ -12,6 +12,9 @@ import '../../../core/services/fcm_service.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated, pending, rejected }
 
+// ── Named record type alias to avoid inference issues ─────────────────────────
+typedef ForgotPasswordResult = ({String? error, String? partnerId});
+
 class AuthProvider extends ChangeNotifier {
   final ApiService _apiService = ApiService();
   final LocationService _locationService = LocationService();
@@ -104,7 +107,9 @@ class AuthProvider extends ChangeNotifier {
         debugPrint('✅ Backend status: $backendStatus');
 
         if (backendStatus == 'deleted' || backendStatus == 'deactivated') {
-          debugPrint('🔐 Account deleted/deactivated on backend — forcing logout');
+          debugPrint(
+            '🔐 Account deleted/deactivated on backend — forcing logout',
+          );
           await _forceLogoutDeleted();
           return;
         }
@@ -136,7 +141,9 @@ class AuthProvider extends ChangeNotifier {
         return;
       }
 
-      debugPrint('⚠️ checkAccountStatus error (non-fatal): ${e.type} ${e.message}');
+      debugPrint(
+        '⚠️ checkAccountStatus error (non-fatal): ${e.type} ${e.message}',
+      );
     } catch (e) {
       debugPrint('⚠️ checkAccountStatus unexpected error: $e');
     } finally {
@@ -149,7 +156,9 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _forceLogoutDeleted() async {
     await _stopLocationTracking();
-    await FCMService.instance.clearToken(sessionToken: await StorageService.getToken() ?? '');
+    await FCMService.instance.clearToken(
+      sessionToken: await StorageService.getToken() ?? '',
+    );
     await StorageService.clearAuthKeys();
     _status = AuthStatus.unauthenticated;
     _partnerId = null;
@@ -223,9 +232,6 @@ class AuthProvider extends ChangeNotifier {
   // FIX: The original code called loginOtp with only partnerId, but that
   // endpoint requires email + password. We now re-send the full credentials
   // that were captured in-memory during login().
-  //
-  // If a dedicated /auth/resend-otp endpoint becomes available on the backend,
-  // switch to ApiEndpoints.resendOtp and send only partnerId (Option B).
 
   Future<String?> resendOtp() async {
     try {
@@ -237,19 +243,14 @@ class AuthProvider extends ChangeNotifier {
       }
 
       if (_loginEmail == null || _loginPassword == null) {
-        // Credentials were cleared — guard against edge cases.
         return 'Session expired. Please login again.';
       }
 
       debugPrint('🔄 Resending OTP for partner: $_partnerId');
 
-      // Option A: re-post full login credentials to get a fresh OTP.
       await _apiService.dio.post(
         ApiEndpoints.loginOtp,
-        data: {
-          'email': _loginEmail,
-          'password': _loginPassword,
-        },
+        data: {'email': _loginEmail, 'password': _loginPassword},
       );
 
       debugPrint('✅ OTP resent successfully');
@@ -332,22 +333,79 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ─── FORGOT PASSWORD ──────────────────────────────────────────────────────
+  //
+  // Returns a named record with either an error message OR a partnerId.
+  // The explicit cast to String? on the null literals fixes the Dart type
+  // inference issue where `null` would be inferred as `Null` instead of
+  // `String?`, causing a return_of_invalid_type error.
 
-  Future<String?> forgotPassword({required String email}) async {
+  Future<ForgotPasswordResult> forgotPassword({
+    required String email,
+  }) async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      await _apiService.dio.post(
+      final response = await _apiService.dio.post(
         ApiEndpoints.forgotPassword,
         data: {'email': email},
       );
 
-      return null;
+      final partnerId = response.data['partnerId']?.toString();
+      // ✅ Explicit String? cast so the record type matches ForgotPasswordResult
+      return (error: null as String?, partnerId: partnerId);
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      if (code == 404) return 'No account found with that email';
-      return e.response?.data['error'] ?? 'Failed to send reset email';
+      final serverMsg = e.response?.data?['error'] as String?;
+
+      if (code == 404) {
+        return (
+          error: 'No account found with that email',
+          partnerId: null as String?,
+        );
+      }
+      return (
+        error: serverMsg ?? 'Failed to send OTP',
+        partnerId: null as String?,
+      );
+    } catch (_) {
+      return (
+        error: 'Something went wrong. Please try again.',
+        partnerId: null as String?,
+      );
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // ─── CHANGE PASSWORD ──────────────────────────────────────────────────────
+  //
+  // Used by the forgot-password flow after the user has received their OTP.
+  // Calls PATCH /api/delivery/profile/change-password with partnerId + otp
+  // + newPassword. Returns null on success, an error string on failure.
+
+  Future<String?> changePassword({
+    required String partnerId,
+    required String otp,
+    required String newPassword,
+  }) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _apiService.dio.patch(
+        ApiEndpoints.changePassword,
+        data: {
+          'partnerId': partnerId,
+          'otp': otp,
+          'newPassword': newPassword,
+        },
+      );
+      return null;
+    } on DioException catch (e) {
+      final serverMsg = e.response?.data?['error'] as String?;
+      return serverMsg ?? 'Failed to change password';
     } catch (_) {
       return 'Something went wrong. Please try again.';
     } finally {
@@ -394,16 +452,38 @@ class AuthProvider extends ChangeNotifier {
         },
       );
 
-      _partnerId = response.data['partnerId'];
+      // Null-safe — never use ! on a field that might be missing
+      final partnerId = response.data['partnerId']?.toString();
+      if (partnerId == null || partnerId.isEmpty) {
+        return 'Registration error: server returned no partner ID.';
+      }
+
+      _partnerId = partnerId;
       await StorageService.savePartnerId(_partnerId!);
       await StorageService.savePartnerStatus('pending');
-
       _status = AuthStatus.pending;
       notifyListeners();
       return null;
+    } on DioException catch (e) {
+      debugPrint(
+        '❌ Registration DioError [${e.response?.statusCode}]: ${e.response?.data}',
+      );
+      final message = e.response?.data?['error'] as String?;
+      final code = e.response?.statusCode;
+      // ✅ All branches wrapped in braces — fixes curly_braces lint warning
+      if (code == 409) {
+        return message ?? 'Already registered with this email.';
+      }
+      if (code == 403) {
+        return message ?? 'Registration not allowed on this plan.';
+      }
+      if (code == 400) {
+        return message ?? 'Invalid registration details.';
+      }
+      return message ?? 'Registration failed. Please check details.';
     } catch (e) {
-      debugPrint('❌ Registration Error: $e');
-      return 'Registration failed. Please check details.';
+      debugPrint('❌ Registration unexpected error: $e');
+      return 'Registration failed. Please try again.';
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -413,16 +493,19 @@ class AuthProvider extends ChangeNotifier {
   // ─── LOCATION TRACKING ────────────────────────────────────────────────────
 
   void _startLocationTracking() {
-    _locationService.startTracking().then((started) {
-      debugPrint(
-        started
-            ? '✅ Location tracking started'
-            : '❌ Location tracking failed to start',
-      );
-      notifyListeners();
-    }).catchError((e) {
-      debugPrint('❌ Error starting location tracking: $e');
-    });
+    _locationService
+        .startTracking()
+        .then((started) {
+          debugPrint(
+            started
+                ? '✅ Location tracking started'
+                : '❌ Location tracking failed to start',
+          );
+          notifyListeners();
+        })
+        .catchError((e) {
+          debugPrint('❌ Error starting location tracking: $e');
+        });
   }
 
   Future<void> _stopLocationTracking() async {

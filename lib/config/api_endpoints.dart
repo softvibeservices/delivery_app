@@ -15,7 +15,7 @@ class ApiEndpoints {
 
   /// Sends a password-reset email. POST body: { email: String }
   /// ⚠️ Confirm the exact path with your backend team before going live.
-  static const String forgotPassword = '/api/delivery/auth/forgot-password';
+  static const String forgotPassword = '/api/delivery/forgot-password';
 
   /// Dedicated OTP resend endpoint (Option B — requires backend support).
   /// POST body: { partnerId: String }
@@ -40,8 +40,7 @@ class ApiEndpoints {
   // 👤 Profile
   static const String getProfile = '/api/delivery/profile';
   static const String updateProfile = '/api/delivery/profile/update';
-  static const String requestPasswordOtp =
-      '/api/delivery/profile/request-password-otp';
+  static const String requestPasswordOtp = '/api/delivery/profile/request-password-otp';
   static const String changePassword = '/api/delivery/profile/change-password';
 
   // 📍 Location

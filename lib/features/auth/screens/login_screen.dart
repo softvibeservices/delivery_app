@@ -142,7 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
           emailController: emailCtrl,
           onSuccess: () {
             Navigator.pop(ctx);
-            _showSnackBar('Check your email for reset instructions.');
+            _showSnackBar('Password changed successfully! Please login.');
           },
           onError: (msg) {
             // Error is shown inside the sheet itself; nothing to do here.
@@ -418,6 +418,10 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ── Forgot Password Bottom Sheet ───────────────────────────────────────────
+//
+// Two-step flow:
+//   Step 1 — User enters email → calls forgotPassword() → gets partnerId back
+//   Step 2 — User enters OTP + new password → calls changePassword()
 
 class _ForgotPasswordSheet extends StatefulWidget {
   final TextEditingController emailController;
@@ -435,12 +439,32 @@ class _ForgotPasswordSheet extends StatefulWidget {
 }
 
 class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
-  final _sheetFormKey = GlobalKey<FormState>();
+  final _formKey = GlobalKey<FormState>();
+  final _otpController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+
   bool _isLoading = false;
   String? _errorText;
 
-  Future<void> _submit() async {
-    if (!(_sheetFormKey.currentState?.validate() ?? false)) return;
+  /// Returned by step 1; required by step 2.
+  String? _partnerId;
+
+  /// false = step 1 (email), true = step 2 (OTP + new password).
+  bool _step2 = false;
+
+  bool _obscureNewPassword = true;
+
+  @override
+  void dispose() {
+    _otpController.dispose();
+    _newPasswordController.dispose();
+    super.dispose();
+  }
+
+  // ── Step 1: send OTP to email ────────────────────────────────────────────
+
+  Future<void> _submitEmail() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() {
       _isLoading = true;
@@ -448,12 +472,44 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     });
 
     final auth = context.read<AuthProvider>();
-    final error = await auth.forgotPassword(
+    final result = await auth.forgotPassword(
       email: widget.emailController.text.trim(),
     );
 
     if (!mounted) return;
+    setState(() => _isLoading = false);
 
+    if (result.error != null) {
+      setState(() => _errorText = result.error);
+      return;
+    }
+
+    // Move to step 2 and store partnerId for the next call.
+    setState(() {
+      _partnerId = result.partnerId;
+      _step2 = true;
+    });
+  }
+
+  // ── Step 2: verify OTP and set new password ──────────────────────────────
+
+  Future<void> _submitChangePassword() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_partnerId == null) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorText = null;
+    });
+
+    final auth = context.read<AuthProvider>();
+    final error = await auth.changePassword(
+      partnerId: _partnerId!,
+      otp: _otpController.text.trim(),
+      newPassword: _newPasswordController.text,
+    );
+
+    if (!mounted) return;
     setState(() => _isLoading = false);
 
     if (error != null) {
@@ -461,6 +517,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
       return;
     }
 
+    // Success — close sheet and show snackbar on the login screen.
     widget.onSuccess();
   }
 
@@ -471,12 +528,12 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
       child: Form(
-        key: _sheetFormKey,
+        key: _formKey,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Handle bar
+            // ── Handle bar ────────────────────────────────────────────
             Center(
               child: Container(
                 width: 40,
@@ -488,66 +545,234 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                 ),
               ),
             ),
-            Text(
-              'Reset Password',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
+
+            // ── Step indicator (only visible in step 2) ───────────────
+            if (_step2)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _isLoading
+                          ? null
+                          : () => setState(() {
+                                _step2 = false;
+                                _errorText = null;
+                                _otpController.clear();
+                                _newPasswordController.clear();
+                              }),
+                      child: Icon(
+                        Icons.arrow_back_ios_new,
+                        size: 16,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Back',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+
+            // ── Title ─────────────────────────────────────────────────
+            Text(
+              _step2 ? 'Enter OTP & New Password' : 'Reset Password',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Enter your account email and we\'ll send you a reset link.',
+              _step2
+                  ? 'We sent a 6-digit OTP to ${widget.emailController.text.trim()}'
+                  : "Enter your account email and we'll send you an OTP.",
               style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
             ),
             const SizedBox(height: 24),
-            TextFormField(
-              controller: widget.emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.done,
-              onFieldSubmitted: (_) => _submit(),
-              autofocus: true,
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Enter your email';
-                final regex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-                if (!regex.hasMatch(v.trim())) return 'Enter a valid email';
-                return null;
-              },
-              decoration: InputDecoration(
-                hintText: 'you@example.com',
-                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                prefixIcon: Icon(
-                  Icons.email_outlined,
-                  color: Colors.grey.shade600,
-                  size: 20,
-                ),
-                filled: true,
-                fillColor: Colors.grey.shade100,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 16,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade400),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade400),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: primary, width: 2),
-                ),
-                errorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.red.shade400),
-                ),
-                focusedErrorBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.red.shade500, width: 2),
+
+            // ══════════════════════════════════════════════════════════
+            // STEP 1 — Email field
+            // ══════════════════════════════════════════════════════════
+            if (!_step2) ...[
+              TextFormField(
+                controller: widget.emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _submitEmail(),
+                autofocus: true,
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Enter your email';
+                  final regex =
+                      RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+                  if (!regex.hasMatch(v.trim())) {
+                    return 'Enter a valid email';
+                  }
+                  return null;
+                },
+                decoration: InputDecoration(
+                  hintText: 'you@example.com',
+                  hintStyle:
+                      TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                  prefixIcon: Icon(
+                    Icons.email_outlined,
+                    color: Colors.grey.shade600,
+                    size: 20,
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade400),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade400),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: primary, width: 2),
+                  ),
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.red.shade400),
+                  ),
+                  focusedErrorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.red.shade500, width: 2),
+                  ),
                 ),
               ),
-            ),
+            ],
+
+            // ══════════════════════════════════════════════════════════
+            // STEP 2 — OTP + New password fields
+            // ══════════════════════════════════════════════════════════
+            if (_step2) ...[
+              // OTP field
+              TextFormField(
+                controller: _otpController,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                autofocus: true,
+                textInputAction: TextInputAction.next,
+                validator: (v) {
+                  if (v == null || v.trim().length != 6) {
+                    return 'Enter the 6-digit OTP';
+                  }
+                  return null;
+                },
+                decoration: InputDecoration(
+                  hintText: '6-digit OTP',
+                  hintStyle:
+                      TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                  prefixIcon: Icon(
+                    Icons.pin_outlined,
+                    color: Colors.grey.shade600,
+                    size: 20,
+                  ),
+                  counterText: '', // hide the "0/6" counter
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade400),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade400),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: primary, width: 2),
+                  ),
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.red.shade400),
+                  ),
+                  focusedErrorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.red.shade500, width: 2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // New password field
+              TextFormField(
+                controller: _newPasswordController,
+                obscureText: _obscureNewPassword,
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _submitChangePassword(),
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Enter a new password';
+                  if (v.length < 6) return 'Minimum 6 characters';
+                  return null;
+                },
+                decoration: InputDecoration(
+                  hintText: 'New password',
+                  hintStyle:
+                      TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                  prefixIcon: Icon(
+                    Icons.lock_outline,
+                    color: Colors.grey.shade600,
+                    size: 20,
+                  ),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureNewPassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: Colors.grey.shade600,
+                      size: 20,
+                    ),
+                    onPressed: () => setState(
+                      () => _obscureNewPassword = !_obscureNewPassword,
+                    ),
+                  ),
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade400),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade400),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: primary, width: 2),
+                  ),
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.red.shade400),
+                  ),
+                  focusedErrorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.red.shade500, width: 2),
+                  ),
+                ),
+              ),
+            ],
+
+            // ── Error text ────────────────────────────────────────────
             if (_errorText != null) ...[
               const SizedBox(height: 10),
               Text(
@@ -555,12 +780,17 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                 style: TextStyle(color: Colors.red.shade600, fontSize: 13),
               ),
             ],
+
             const SizedBox(height: 20),
+
+            // ── Submit button ─────────────────────────────────────────
             SizedBox(
               width: double.infinity,
               height: 52,
               child: ElevatedButton(
-                onPressed: _isLoading ? null : _submit,
+                onPressed: _isLoading
+                    ? null
+                    : (_step2 ? _submitChangePassword : _submitEmail),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: primary,
                   foregroundColor: Colors.white,
@@ -583,7 +813,7 @@ class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Send Reset Link'),
+                    : Text(_step2 ? 'Change Password' : 'Send OTP'),
               ),
             ),
           ],

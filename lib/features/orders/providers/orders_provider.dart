@@ -69,13 +69,15 @@ class OrdersProvider extends ChangeNotifier {
       debugPrint('📱 Fetching orders...');
 
       final partnerId = StorageService.getPartnerId();
-      debugPrint('🔑 Partner ID: $partnerId');
+      final userId = StorageService.getUserId(); // ← FIX: scopes orders to your admin only
+      debugPrint('🔑 Partner ID: $partnerId | Admin (userId): $userId');
 
       final response = await _apiService.dio.get(
         ApiEndpoints.pendingOrders,
         queryParameters: {
           'onlyUnsettled': 'true',
           if (partnerId != null) 'partnerId': partnerId,
+          if (userId != null) 'userId': userId, // ← FIX: without this, unassigned orders from ALL admins were returned
         },
       );
 

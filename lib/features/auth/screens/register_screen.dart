@@ -148,6 +148,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   // Form
                   Form(
                     key: _formKey,
+                    autovalidateMode:
+                        AutovalidateMode.onUserInteraction, // ← add this
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -205,7 +207,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           icon: Icons.phone_outlined,
                           keyboardType: TextInputType.phone,
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty) return 'Required';
+                            if (v == null || v.trim().isEmpty)
+                              return 'Required';
                             final digits = v.replaceAll(RegExp(r'\D'), '');
                             if (digits.length < 10) {
                               return 'Enter a valid 10-digit number';
@@ -444,11 +447,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
       helperText: helperText,
       helperStyle: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-      prefixIcon: Icon(
-        prefixIcon,
-        color: Colors.grey.shade600,
-        size: 20,
-      ),
+      prefixIcon: Icon(prefixIcon, color: Colors.grey.shade600, size: 20),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: Colors.grey.shade100,
