@@ -66,7 +66,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
       status: next,
     );
 
-    if (!mounted) return;
+    if (!mounted) return; // CRITICAL: guard before any context usage
 
     if (success) {
       // FIX (Bug 4B): When the order is marked Delivered the backend stops
@@ -109,6 +109,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
   }
 
   void _showSnack(String msg, {bool isError = false}) {
+    if (!mounted) return; // FIX: guard against calling after widget disposal
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
@@ -252,7 +253,7 @@ class _HeaderCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Icon(
-                  Icons.inventory_2_outlined,
+                  Icons.receipt_long_rounded,
                   color: primary,
                   size: 28,
                 ),
@@ -263,57 +264,24 @@ class _HeaderCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Order #${order.orderId}',
+                      'Order #${order.id.length > 8 ? order.id.substring(order.id.length - 8).toUpperCase() : order.id.toUpperCase()}',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.3,
                       ),
                     ),
-                    if (order.serialNumber != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Serial: ${order.serialNumber}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade500,
-                          fontWeight: FontWeight.w500,
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      order.shopName ?? order.customerName,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ],
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Divider(height: 1),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Placed on',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade500,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    DateFormat(
-                      'MMMM dd, yyyy • hh:mm a',
-                    ).format(order.createdAt),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
               ),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 350),

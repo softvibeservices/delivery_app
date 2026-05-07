@@ -163,7 +163,11 @@ class NotificationService {
     }
 
     await _show(
-      id: '${orderId}_status'.hashCode,
+      // FIX (Bug 4C): Include `status` in the hash key so "On the Way" and
+      // "Delivered" produce two distinct notification IDs. Previously both
+      // used '${orderId}_status' (a literal), giving the same integer — Android
+      // would silently replace the first notification instead of showing a new one.
+      id: '${orderId}_$status'.hashCode,
       title: 'Order Status Updated',
       body: 'Order for $customerName is now "$status"',
       channelId: _updateChannelId,
