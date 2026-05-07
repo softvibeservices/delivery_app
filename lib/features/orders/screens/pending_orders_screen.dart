@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +7,8 @@ import '../providers/orders_provider.dart';
 import '../models/order_model.dart';
 import '../widgets/order_card.dart';
 import '../widgets/skeleton_card.dart';
+import '../../../core/services/navigation_service.dart';
+import '../../../core/services/notification_service.dart';
 import 'order_details_screen.dart';
 
 class PendingOrdersScreen extends StatefulWidget {
@@ -20,6 +24,20 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
   final _searchController = TextEditingController();
   bool _fetchTriggered = false;
 
+  // FIX (Bug 1B): Subscribe to NavigationService so that external FCM
+  // order_status_update messages (and new_order messages) auto-refresh this
+  // list while the screen is visible — the same mechanism FCMService already
+  // used for new_order, now also wired up for order_status_update.
+  StreamSubscription<String?>? _notifSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _notifSub = NavigationService.instance.onNotificationTap.listen((_) {
+      if (mounted) context.read<OrdersProvider>().fetchOrders();
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -31,6 +49,7 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
 
   @override
   void dispose() {
+    _notifSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -57,7 +76,32 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
   }
 
   Future<void> _updateStatus(OrdersProvider p, OrderModel order) async {
-    await p.updateOrderStatus(orderId: order.id, status: order.nextStatus);
+    final nextStatus = order.nextStatus;
+
+    // FIX (Bug 1A): Capture the return value. The original code discarded it,
+    // so no notification was ever shown and the delivered-refresh was never
+    // triggered from the list screen.
+    final success = await p.updateOrderStatus(
+      orderId: order.id,
+      status: nextStatus,
+    );
+
+    if (!mounted) return;
+
+    if (success) {
+      // Show the status-changed notification (same as OrderDetailsScreen does).
+      await NotificationService.instance.showOrderStatusNotification(
+        orderId: order.id,
+        status: nextStatus,
+        customerName: order.shopName ?? order.customerName,
+      );
+
+      // FIX (Bug 5): Signal the delivered orders screen to reload when an
+      // order is marked Delivered from the list screen.
+      if (nextStatus == 'Delivered') {
+        NavigationService.instance.triggerDeliveredOrdersRefresh();
+      }
+    }
   }
 
   @override
@@ -108,29 +152,28 @@ class _PendingOrdersScreenState extends State<PendingOrdersScreen> {
       body: Consumer<OrdersProvider>(
         builder: (context, provider, _) {
           final orders = _displayOrders(provider);
-          final isEmpty = !provider.isLoading && orders.isEmpty;
 
+          // FIX (Bug 2): Always render _OrderList (which contains the search
+          // bar and filter chips). The empty state is now shown INSIDE the
+          // CustomScrollView as a SliverFillRemaining, so the chips and search
+          // bar never disappear when a filter yields zero results.
           return RefreshIndicator(
             onRefresh: _refresh,
             color: primary,
-            child: isEmpty && !provider.isLoading
-                ? _EmptyState(
-                    hasError: provider.error != null,
-                    onRetry: _refresh,
-                  )
-                : _OrderList(
-                    provider: provider,
-                    orders: orders,
-                    primary: primary,
-                    searchQuery: _searchQuery,
-                    selectedSort: _selectedSort,
-                    searchController: _searchController,
-                    onSearch: _onSearch,
-                    onClearSearch: _clearSearch,
-                    onSortChanged: (s) => setState(() => _selectedSort = s),
-                    onView: (o) => _openDetail(o, provider),
-                    onAction: (o) => _updateStatus(provider, o),
-                  ),
+            child: _OrderList(
+              provider: provider,
+              orders: orders,
+              primary: primary,
+              searchQuery: _searchQuery,
+              selectedSort: _selectedSort,
+              searchController: _searchController,
+              onSearch: _onSearch,
+              onClearSearch: _clearSearch,
+              onSortChanged: (s) => setState(() => _selectedSort = s),
+              onView: (o) => _openDetail(o, provider),
+              onAction: (o) => _updateStatus(provider, o),
+              onRetry: _refresh,
+            ),
           );
         },
       ),
@@ -152,6 +195,9 @@ class _OrderList extends StatelessWidget {
   final ValueChanged<String> onSortChanged;
   final ValueChanged<OrderModel> onView;
   final ValueChanged<OrderModel> onAction;
+  // FIX (Bug 2): Retry callback passed in so the inline empty state can show
+  // a Retry button on network errors.
+  final Future<void> Function() onRetry;
 
   const _OrderList({
     required this.provider,
@@ -165,6 +211,7 @@ class _OrderList extends StatelessWidget {
     required this.onSortChanged,
     required this.onView,
     required this.onAction,
+    required this.onRetry,
   });
 
   static const _sortOptions = [
@@ -176,9 +223,17 @@ class _OrderList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // FIX (Bug 2): Determine empty-state conditions INSIDE _OrderList so the
+    // search bar and chips are always rendered first.
+    final isFiltered = selectedSort != 'All Orders' || searchQuery.isNotEmpty;
+    final isEmptyAfterFilter =
+        !provider.isLoading && orders.isEmpty && provider.error == null;
+    final isErrorEmpty =
+        !provider.isLoading && orders.isEmpty && provider.error != null;
+
     return CustomScrollView(
       slivers: [
-        // Search
+        // Search — always visible
         SliverToBoxAdapter(
           child: _SearchBar(
             controller: searchController,
@@ -204,7 +259,7 @@ class _OrderList extends StatelessWidget {
         if (provider.error != null)
           SliverToBoxAdapter(child: _ErrorBanner(error: provider.error!)),
 
-        // Sort chips
+        // Sort chips — always visible
         SliverToBoxAdapter(
           child: SizedBox(
             height: 44,
@@ -229,12 +284,23 @@ class _OrderList extends StatelessWidget {
 
         const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
-        // Loading or List
+        // Loading skeletons
         if (provider.isLoading && orders.isEmpty)
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (_, __) => const SkeletonCard(),
               childCount: 6,
+            ),
+          )
+        // FIX (Bug 2): Show inline empty state INSIDE the scroll view so the
+        // search bar and chips above remain visible.
+        else if (isEmptyAfterFilter || isErrorEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: _InlineEmptyState(
+              isFiltered: isFiltered,
+              hasError: isErrorEmpty,
+              onRetry: onRetry,
             ),
           )
         else
@@ -411,68 +477,78 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
+// FIX (Bug 2): Lightweight inline empty state that renders INSIDE the
+// CustomScrollView so the search/filter UI above remains on screen.
+// This replaces the old _EmptyState which would swap out the entire _OrderList.
+class _InlineEmptyState extends StatelessWidget {
+  final bool isFiltered;
   final bool hasError;
-  final VoidCallback onRetry;
+  final Future<void> Function() onRetry;
 
-  const _EmptyState({required this.hasError, required this.onRetry});
+  const _InlineEmptyState({
+    required this.isFiltered,
+    required this.hasError,
+    required this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(40),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    hasError ? Icons.wifi_off_rounded : Icons.inbox_outlined,
-                    size: 72,
-                    color: Colors.grey.shade300,
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    hasError ? 'Could not load orders' : 'No pending orders',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    hasError
-                        ? 'Check your connection and try again.'
-                        : 'Pull down to refresh. New orders will appear here.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.grey.shade500,
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
-                  ),
-                  if (hasError) ...[
-                    const SizedBox(height: 20),
-                    FilledButton.icon(
-                      onPressed: onRetry,
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('Retry'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF2B8CEE),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              hasError
+                  ? Icons.wifi_off_rounded
+                  : (isFiltered
+                      ? Icons.filter_list_off_rounded
+                      : Icons.inbox_outlined),
+              size: 64,
+              color: Colors.grey.shade300,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              hasError
+                  ? 'Could not load orders'
+                  : (isFiltered
+                      ? 'No orders match this filter'
+                      : 'No pending orders'),
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
               ),
             ),
-          ),
+            const SizedBox(height: 8),
+            Text(
+              hasError
+                  ? 'Check your connection and try again.'
+                  : (isFiltered
+                      ? 'Try a different filter or search term.'
+                      : 'Pull down to refresh. New orders will appear here.'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey.shade500,
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+            if (hasError) ...[
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Retry'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF2B8CEE),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

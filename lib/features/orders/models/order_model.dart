@@ -76,6 +76,74 @@ class OrderModel {
     this.updatedAt,
   });
 
+  // ─── copyWith ─────────────────────────────────────────────────────────────
+  // FIX (Bug 4B): Used in _updateStatus() on OrderDetailsScreen when the order
+  // disappears from the provider list after being marked Delivered — we still
+  // need to update local state so the slide button hides correctly.
+  OrderModel copyWith({
+    String? id,
+    String? userId,
+    String? orderId,
+    String? serialNumber,
+    String? shopName,
+    String? customerId,
+    String? customerName,
+    String? customerAddress,
+    String? customerContact,
+    double? customerLat,
+    double? customerLng,
+    List<OrderItem>? items,
+    List<OrderItem>? freeItems,
+    Map<String, dynamic>? quantitySummary,
+    double? subtotal,
+    double? discountPercentage,
+    double? total,
+    String? remarks,
+    String? status,
+    String? settlementMethod,
+    double? settlementAmount,
+    String? deliveryPartnerId,
+    String? deliveryStatus,
+    DateTime? deliveryAssignedAt,
+    DateTime? deliveryOnTheWayAt,
+    DateTime? deliveryCompletedAt,
+    String? deliveryNotes,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return OrderModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      orderId: orderId ?? this.orderId,
+      serialNumber: serialNumber ?? this.serialNumber,
+      shopName: shopName ?? this.shopName,
+      customerId: customerId ?? this.customerId,
+      customerName: customerName ?? this.customerName,
+      customerAddress: customerAddress ?? this.customerAddress,
+      customerContact: customerContact ?? this.customerContact,
+      customerLat: customerLat ?? this.customerLat,
+      customerLng: customerLng ?? this.customerLng,
+      items: items ?? this.items,
+      freeItems: freeItems ?? this.freeItems,
+      quantitySummary: quantitySummary ?? this.quantitySummary,
+      subtotal: subtotal ?? this.subtotal,
+      discountPercentage: discountPercentage ?? this.discountPercentage,
+      total: total ?? this.total,
+      remarks: remarks ?? this.remarks,
+      status: status ?? this.status,
+      settlementMethod: settlementMethod ?? this.settlementMethod,
+      settlementAmount: settlementAmount ?? this.settlementAmount,
+      deliveryPartnerId: deliveryPartnerId ?? this.deliveryPartnerId,
+      deliveryStatus: deliveryStatus ?? this.deliveryStatus,
+      deliveryAssignedAt: deliveryAssignedAt ?? this.deliveryAssignedAt,
+      deliveryOnTheWayAt: deliveryOnTheWayAt ?? this.deliveryOnTheWayAt,
+      deliveryCompletedAt: deliveryCompletedAt ?? this.deliveryCompletedAt,
+      deliveryNotes: deliveryNotes ?? this.deliveryNotes,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
   // ✅ FIXED: Helper method to parse UTC and convert to local time (IST)
   static DateTime _parseUtcToLocal(dynamic dateValue) {
     if (dateValue == null) return DateTime.now();

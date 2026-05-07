@@ -106,17 +106,22 @@ class _OtpScreenState extends State<OtpScreen> {
     }
   }
 
-  // ── Resend OTP with improved error handling ──────────────────────────────
+  // ── Resend OTP ────────────────────────────────────────────────────────────
+  //
+  // FIX: Capture ScaffoldMessenger BEFORE any async gap. After an await the
+  // widget may be deactivated, making ScaffoldMessenger.of(context) throw
+  // "Looking up a deactivated widget's ancestor is unsafe."
+  // Capturing the reference synchronously is the Flutter-recommended pattern.
 
   Future<void> _resendOtp() async {
+    // Capture both references synchronously, before any await.
     final auth = context.read<AuthProvider>();
+    final messenger = ScaffoldMessenger.of(context); // ← capture here
 
-    // Guard: if there's no active session, redirect to login immediately
+    // Guard: if there's no active session, redirect to login immediately.
     if (auth.partnerId == null) {
-      _showSnackBar(
-        'Session expired. Please login again.',
-        isError: true,
-      );
+      _showSnackBarWith(messenger, 'Session expired. Please login again.',
+          isError: true);
       await Future.delayed(const Duration(seconds: 2));
       if (mounted) {
         Navigator.pushReplacementNamed(context, AppRoutes.login);
@@ -124,16 +129,19 @@ class _OtpScreenState extends State<OtpScreen> {
       return;
     }
 
-    _showSnackBar('Sending new OTP...');
+    // Show the "sending" toast using the pre-captured messenger — safe even
+    // if the widget gets deactivated during the HTTP call that follows.
+    _showSnackBarWith(messenger, 'Sending new OTP...');
 
     final error = await auth.resendOtp();
 
+    // After any await, always guard with mounted before touching context.
     if (!mounted) return;
 
     if (error != null) {
       _showSnackBar(error, isError: true);
 
-      // If the session is fully expired, bounce back to login after a brief delay
+      // If the session is fully expired, bounce back to login after a brief delay.
       if (error.toLowerCase().contains('session expired') ||
           error.toLowerCase().contains('login again')) {
         await Future.delayed(const Duration(seconds: 2));
@@ -156,21 +164,47 @@ class _OtpScreenState extends State<OtpScreen> {
     _focusNodes[0].requestFocus();
   }
 
+  // ── Snack bar helpers ─────────────────────────────────────────────────────
+
+  /// Safe version: checks [mounted] before using [context].
+  /// Use this for all calls that happen AFTER an async gap.
   void _showSnackBar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor:
-              isError ? Colors.red.shade700 : Colors.green.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+    if (!mounted) return; // ← FIX: guard added
+    _showSnackBarWith(ScaffoldMessenger.of(context), message, isError: isError);
+  }
+
+  /// Low-level helper that takes a pre-captured [ScaffoldMessengerState].
+  ///
+  /// WHY try-catch instead of messenger.mounted:
+  /// Flutter's State.mounted returns true for *inactive* (deactivated but
+  /// not yet unmounted) elements. The internal _debugCheckStateIsActive
+  /// check inside showSnackBar is stricter — it throws if the element is
+  /// merely inactive. So mounted==true is not a reliable guard here.
+  /// try-catch is the only bulletproof way to handle this edge case.
+  void _showSnackBarWith(
+    ScaffoldMessengerState messenger,
+    String message, {
+    bool isError = false,
+  }) {
+    try {
+      messenger
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor:
+                isError ? Colors.red.shade700 : Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
           ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+        );
+    } catch (_) {
+      // ScaffoldMessenger deactivated between capture and this call —
+      // the UI is already navigating away, so silently drop the toast.
+    }
   }
 
   void _onOtpChanged(int index, String value) {
@@ -304,22 +338,20 @@ class _OtpScreenState extends State<OtpScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
-                        child: isLoading
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text('Verify & Continue'),
-                      ),
+                      child: isLoading
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Verify'),
                     ),
                   ),
-                  const SizedBox(height: 24),
+
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
@@ -330,12 +362,9 @@ class _OtpScreenState extends State<OtpScreen> {
   }
 }
 
-class _OtpBox extends StatelessWidget {
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final ValueChanged<String> onChanged;
-  final ValueChanged<KeyEvent> onKeyEvent;
+// ── OTP input box widget ───────────────────────────────────────────────────
 
+class _OtpBox extends StatelessWidget {
   const _OtpBox({
     required this.controller,
     required this.focusNode,
@@ -343,26 +372,29 @@ class _OtpBox extends StatelessWidget {
     required this.onKeyEvent,
   });
 
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<KeyEvent> onKeyEvent;
+
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).primaryColor;
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: SizedBox(
         width: 48,
         height: 56,
-        child: Focus(
-          onKeyEvent: (_, event) {
-            onKeyEvent(event);
-            return KeyEventResult.ignored;
-          },
+        child: KeyboardListener(
+          focusNode: FocusNode(),
+          onKeyEvent: onKeyEvent,
           child: TextField(
             controller: controller,
             focusNode: focusNode,
-            keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
+            keyboardType: TextInputType.number,
             maxLength: 1,
+            onChanged: onChanged,
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
@@ -370,23 +402,16 @@ class _OtpBox extends StatelessWidget {
             decoration: InputDecoration(
               counterText: '',
               contentPadding: EdgeInsets.zero,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade300),
-              ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderSide: BorderSide(color: Colors.grey.shade300, width: 1.5),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: primary, width: 2),
               ),
-            ),
-            onChanged: onChanged,
-            onTap: () => controller.selection = TextSelection(
-              baseOffset: 0,
-              extentOffset: controller.text.length,
+              filled: true,
+              fillColor: Colors.grey.shade50,
             ),
           ),
         ),

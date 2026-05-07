@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/order_model.dart';
 import '../providers/orders_provider.dart';
+import '../../../core/services/navigation_service.dart';
 import '../../../core/services/notification_service.dart';
 
 class OrderDetailsScreen extends StatefulWidget {
@@ -59,6 +60,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
       _slideKey.currentState?.reset();
       return;
     }
+
     final success = await provider.updateOrderStatus(
       orderId: _order.id,
       status: next,
@@ -67,20 +69,43 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
     if (!mounted) return;
 
     if (success) {
+      // FIX (Bug 4B): When the order is marked Delivered the backend stops
+      // returning it in the pending list, so getOrderById returns null.
+      // Fall back to copyWith so local state still reflects the new status —
+      // this makes canUpdateStatus return false and hides the slide button.
       final updated = provider.getOrderById(_order.id);
-      if (updated != null) setState(() => _order = updated);
+      if (updated != null) {
+        setState(() => _order = updated);
+      } else {
+        setState(() => _order = _order.copyWith(
+              deliveryStatus: next,
+              deliveryCompletedAt:
+                  next == 'Delivered' ? DateTime.now() : _order.deliveryCompletedAt,
+              deliveryOnTheWayAt:
+                  next == 'On the Way' ? DateTime.now() : _order.deliveryOnTheWayAt,
+            ));
+      }
+
       _slideKey.currentState?.reset();
       _showSnack('Order marked as $next');
+
+      // FIX (Bug 4A): Notification now fires ONLY on success (moved inside
+      // the if-block; was previously outside and fired on failures too).
+      await NotificationService.instance.showOrderStatusNotification(
+        orderId: _order.id,
+        status: next,
+        customerName: _order.shopName ?? _order.customerName,
+      );
+
+      // FIX (Bug 5): Signal the delivered orders screen to reload when this
+      // order transitions to Delivered.
+      if (next == 'Delivered') {
+        NavigationService.instance.triggerDeliveredOrdersRefresh();
+      }
     } else {
       _slideKey.currentState?.reset();
       _showSnack('Failed to update status', isError: true);
     }
-
-    await NotificationService.instance.showOrderStatusNotification(
-      orderId: _order.id,
-      status: next,
-      customerName: _order.shopName ?? _order.customerName,
-    );
   }
 
   void _showSnack(String msg, {bool isError = false}) {
@@ -471,6 +496,9 @@ class _CustomerBody extends StatelessWidget {
             icon: Icons.phone_outlined,
             label: 'Contact',
             value: order.customerContact!,
+            // FIX (Bug 3): Keep the compact inline "Call" chip here —
+            // removed the redundant full-width "Call Customer" action button
+            // that was in the Row below (left only "Navigate").
             trailing: GestureDetector(
               onTap: () => onCall(order.customerContact),
               child: Container(
@@ -503,26 +531,17 @@ class _CustomerBody extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 20),
-        Row(
-          children: [
-            Expanded(
-              child: _ActionButton(
-                icon: Icons.call,
-                label: 'Call Customer',
-                color: Colors.green,
-                onTap: () => onCall(order.customerContact),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _ActionButton(
-                icon: Icons.directions,
-                label: 'Navigate',
-                color: primary,
-                onTap: onNavigate,
-              ),
-            ),
-          ],
+        // FIX (Bug 3): Removed duplicate "Call Customer" _ActionButton.
+        // The inline "Call" chip on the _InfoTile above is sufficient.
+        // "Navigate" now occupies the full width on its own.
+        SizedBox(
+          width: double.infinity,
+          child: _ActionButton(
+            icon: Icons.directions,
+            label: 'Navigate',
+            color: primary,
+            onTap: onNavigate,
+          ),
         ),
       ],
     );

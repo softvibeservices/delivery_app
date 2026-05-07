@@ -265,6 +265,18 @@ class FCMService {
         status: message.data['status'] ?? '',
         customerName: message.data['customerName'] ?? 'Customer',
       );
+
+      // FIX (Bug 1B): Trigger pending orders list refresh for external status
+      // updates, the same way new_order messages do.
+      NavigationService.instance.handleNotificationTap(
+        message.data['orderId'],
+      );
+
+      // FIX (Bug 5): If the external update marks an order as Delivered,
+      // also signal the delivered orders screen to reload.
+      if (message.data['status'] == 'Delivered') {
+        NavigationService.instance.triggerDeliveredOrdersRefresh();
+      }
     }
   }
 

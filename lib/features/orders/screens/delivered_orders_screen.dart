@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -5,7 +7,7 @@ import '../providers/delivered_orders_provider.dart';
 import '../models/order_model.dart';
 import '../widgets/order_card.dart';
 import '../widgets/skeleton_card.dart';
-import '../../../core/utils/date_utils.dart';
+import '../../../core/services/navigation_service.dart';
 import 'order_details_screen.dart';
 
 class DeliveredOrdersScreen extends StatefulWidget {
@@ -19,16 +21,29 @@ class _DeliveredOrdersScreenState extends State<DeliveredOrdersScreen> {
   String _searchQuery = '';
   final _searchController = TextEditingController();
 
+  // FIX (Bug 5): Listen for signals from NavigationService so that whenever
+  // any other screen (or FCM) marks an order as Delivered this screen reloads
+  // automatically — without the user needing to pull-to-refresh.
+  StreamSubscription<void>? _refreshSub;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<DeliveredOrdersProvider>().fetchDeliveredOrders();
     });
+
+    // FIX (Bug 5): Subscribe to the delivered-orders refresh signal.
+    _refreshSub = NavigationService.instance.onDeliveredOrdersRefresh.listen((_) {
+      if (mounted) {
+        context.read<DeliveredOrdersProvider>().fetchDeliveredOrders();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _refreshSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -67,7 +82,7 @@ class _DeliveredOrdersScreenState extends State<DeliveredOrdersScreen> {
         actions: [
           Selector<DeliveredOrdersProvider, int>(
             selector: (_, p) => p.totalDeliveries,
-            builder: (_, count, __) => Container(
+            builder: (_, count, _) => Container(
               margin: const EdgeInsets.only(right: 16),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: BoxDecoration(
@@ -132,12 +147,6 @@ class _DeliveredOrdersScreenState extends State<DeliveredOrdersScreen> {
                         ),
                       ),
 
-                      // Stats
-                      if (!provider.isLoading && provider.totalDeliveries > 0)
-                        SliverToBoxAdapter(
-                          child: _StatsRow(provider: provider),
-                        ),
-
                       // Last updated
                       if (provider.lastUpdated != null)
                         SliverToBoxAdapter(
@@ -166,7 +175,7 @@ class _DeliveredOrdersScreenState extends State<DeliveredOrdersScreen> {
                       if (provider.isLoading && !hasData)
                         SliverList(
                           delegate: SliverChildBuilderDelegate(
-                            (_, __) => const SkeletonCard(),
+                            (_, _) => const SkeletonCard(),
                             childCount: 5,
                           ),
                         ),
@@ -265,7 +274,8 @@ class _SearchBar extends StatelessWidget {
                 onTap: onClear,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
-                  child: Icon(Icons.clear, size: 18, color: Colors.grey.shade400),
+                  child:
+                      Icon(Icons.clear, size: 18, color: Colors.grey.shade400),
                 ),
               ),
           ],
@@ -276,114 +286,6 @@ class _SearchBar extends StatelessWidget {
 }
 
 // ─── Stats Row ─────────────────────────────────────────────────────────────
-
-class _StatsRow extends StatelessWidget {
-  final DeliveredOrdersProvider provider;
-  const _StatsRow({required this.provider});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-      child: Row(
-        children: [
-          _StatCard(
-            label: 'Today',
-            value: provider.todayCount.toString(),
-            icon: Icons.today_outlined,
-            color: Colors.blue,
-          ),
-          const SizedBox(width: 12),
-          _StatCard(
-            label: 'This Week',
-            value: provider.getThisWeekDeliveries().toString(),
-            icon: Icons.date_range_outlined,
-            color: Colors.green,
-          ),
-          const SizedBox(width: 12),
-          _StatCard(
-            label: 'Total',
-            value: provider.totalDeliveries.toString(),
-            icon: Icons.check_circle_outline,
-            color: Colors.orange,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE8EAED)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(height: 10),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              child: Text(
-                value,
-                key: ValueKey(value),
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                  letterSpacing: -0.5,
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ─── Group Sliver ──────────────────────────────────────────────────────────
 
 class _GroupSliver extends StatelessWidget {
