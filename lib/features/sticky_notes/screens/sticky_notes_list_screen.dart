@@ -341,6 +341,7 @@ class _NoteCard extends StatelessWidget {
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
@@ -370,7 +371,20 @@ class _NoteCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const Spacer(),
+                // FIX: was `const Spacer()`. Spacer is a flex widget and
+                // requires a BOUNDED height from its parent to compute how
+                // much space to fill. This card is laid out inside a
+                // SliverList, which gives list items UNBOUNDED height
+                // (it sizes each item to its natural/intrinsic height).
+                // That mismatch is exactly what threw:
+                //   "RenderFlex children have non-zero flex but incoming
+                //    height constraints are unbounded"
+                // ...which then cascaded into every other render error in
+                // the log and left the whole sticky-notes screen blank,
+                // even though the data had loaded successfully.
+                // A fixed-size gap doesn't need bounded height, so it's safe
+                // inside a sliver list item.
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Icon(
@@ -386,7 +400,12 @@ class _NoteCard extends StatelessWidget {
                         color: Colors.grey.shade500,
                       ),
                     ),
-                    const Spacer(),
+                    const Spacer(), // OK here: this Row is NOT inside an
+                    // unbounded-height ancestor — Row gives bounded WIDTH
+                    // constraints to its children regardless of the
+                    // surrounding Column's height, so flexing horizontally
+                    // is fine. Only vertical Spacer/Expanded inside an
+                    // unbounded-height Column is the problem.
                     Text(
                       '${note.items.length} items',
                       style: TextStyle(

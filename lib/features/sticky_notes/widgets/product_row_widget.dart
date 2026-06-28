@@ -75,6 +75,14 @@ class _ProductRowWidgetState extends State<ProductRowWidget>
 
   @override
   void dispose() {
+    // Removing listeners explicitly before dispose() avoids a stray
+    // notification firing setState() while the FocusNode is mid-teardown
+    // (e.g. when the whole row is removed, or the form screen is popped
+    // while a field still has focus) — this is what caused the
+    // "Looking up a deactivated widget's ancestor is unsafe" exception
+    // seen in the logs right after saving/creating a note.
+    _productFocus.removeListener(_onFocusChange);
+    _qtyFocus.removeListener(_onFocusChange);
     _animController.dispose();
     _productFocus.dispose();
     _qtyFocus.dispose();
@@ -84,6 +92,12 @@ class _ProductRowWidgetState extends State<ProductRowWidget>
   }
 
   void _onFocusChange() {
+    // FIX: guard against calling setState() after this State has been
+    // disposed/deactivated. FocusNode listeners can still fire during
+    // teardown (row removed, screen popped, keyboard dismissed on
+    // navigation) — calling setState() at that point throws
+    // "Looking up a deactivated widget's ancestor is unsafe."
+    if (!mounted) return;
     setState(() {
       _isFieldFocused = _productFocus.hasFocus || _qtyFocus.hasFocus;
       _showSuggestions = _productFocus.hasFocus;
@@ -125,6 +139,15 @@ class _ProductRowWidgetState extends State<ProductRowWidget>
         unit: widget.row.unit,
       ),
     );
+  }
+
+  // FIX: after typing the qty and hitting the keyboard action, move focus
+  // to the next focusable field in the form (the next row's product name
+  // field), instead of just dismissing the keyboard. Combined with
+  // TextInputAction.next on the qty TextField below, the keyboard button
+  // now reads "Next" instead of "Done".
+  void _moveToNextField() {
+    FocusScope.of(context).nextFocus();
   }
 
   @override
@@ -188,6 +211,7 @@ class _ProductRowWidgetState extends State<ProductRowWidget>
                                 controller: _qtyController,
                                 focusNode: _qtyFocus,
                                 onChanged: _updateQuantity,
+                                onSubmitted: (_) => _moveToNextField(),
                               ),
                             ),
 
@@ -291,11 +315,13 @@ class _QtyField extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.onChanged,
+    required this.onSubmitted,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -326,7 +352,13 @@ class _QtyField extends StatelessWidget {
         isDense: true,
       ),
       onChanged: onChanged,
-      textInputAction: TextInputAction.done,
+      onSubmitted: onSubmitted,
+      // FIX: was TextInputAction.done — keyboard showed "Done" and just
+      // dismissed the keyboard. Now shows "Next" and, via onSubmitted
+      // above, moves focus to the next product row's name field so the
+      // user can keep entering products without reaching for the keyboard
+      // dismiss button or tapping the next field manually.
+      textInputAction: TextInputAction.next,
     );
   }
 }
