@@ -233,12 +233,21 @@ class GoToProvider extends ChangeNotifier {
   }
 
   Future<void> addToRecentSearches(CustomerModel customer) async {
-    _recentSearches.removeWhere((c) => c.id == customer.id);
-    _recentSearches.insert(0, customer);
+    // IMPORTANT: build a brand-new List instance rather than mutating
+    // _recentSearches in place. The GoTo screen reads this list through a
+    // Selector<GoToProvider, List<CustomerModel>>, which decides whether to
+    // rebuild by comparing the previous and new selected values with `==`.
+    // Mutating the same List object means that comparison sees the exact
+    // same reference and skips the rebuild, even though notifyListeners()
+    // fires — so the Recent section silently goes stale until something
+    // else forces a full rebuild (e.g. leaving and re-entering the screen).
+    final updated = List<CustomerModel>.from(_recentSearches)
+      ..removeWhere((c) => c.id == customer.id)
+      ..insert(0, customer);
 
-    if (_recentSearches.length > _maxRecentSearches) {
-      _recentSearches = _recentSearches.sublist(0, _maxRecentSearches);
-    }
+    _recentSearches = updated.length > _maxRecentSearches
+        ? updated.sublist(0, _maxRecentSearches)
+        : updated;
 
     notifyListeners();
     await _saveRecentSearches();

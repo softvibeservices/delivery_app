@@ -16,7 +16,14 @@ class AppDateUtils {
   // ─── Formatters ───────────────────────────────────────────────────────────
 
   static String formatToLocal(DateTime utcDate, String format) {
-    return DateFormat(format).format(utcToLocal(utcDate));
+    // Locale is pinned to 'en_US' deliberately. Without calling
+    // initializeDateFormatting() at app startup (this app never does),
+    // DateFormat only has locale data for 'en_US' built in — any other
+    // locale (which is what most devices in India are actually set to,
+    // e.g. en_IN, hi_IN, gu_IN) throws LocaleDataException at runtime.
+    // In release builds that exception is swallowed and the screen just
+    // renders blank, which is exactly the bug this fixes.
+    return DateFormat(format, 'en_US').format(utcToLocal(utcDate));
   }
 
   /// e.g. "January 18, 2026 • 02:30 PM"
@@ -83,7 +90,7 @@ class AppDateUtils {
       final d = diff.inDays;
       return '$d ${d == 1 ? 'day' : 'days'} ago';
     }
-    return DateFormat('MMM dd, yyyy').format(local);
+    return DateFormat('MMM dd, yyyy', 'en_US').format(local);
   }
 
   /// Shows "Today, 02:30 PM" / "Yesterday, 02:30 PM" / "Jan 18, 02:30 PM"

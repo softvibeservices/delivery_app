@@ -61,7 +61,14 @@ class StickyNoteFormProvider extends ChangeNotifier {
   bool get isSearchingProducts => _isSearchingProducts;
 
   Timer? _customerSearchTimer;
-  Timer? _productSearchTimer;
+
+  // IMPORTANT: keyed by row index, NOT a single shared Timer.
+  // A single shared timer meant typing in any row cancelled every other
+  // row's pending debounce, so suggestions only fired once the user
+  // stopped touching the whole form — not just that one field. That's
+  // what made suggestions feel slow (or never show up) while filling
+  // out a multi-product note.
+  final Map<int, Timer> _productSearchTimers = {};
 
   // ignore: prefer_final_fields
   bool _isSaving = false;
@@ -105,6 +112,14 @@ class StickyNoteFormProvider extends ChangeNotifier {
       _productRows.add(ProductRow());
     }
 
+    // If every loaded row is already filled in (e.g. editing a note with
+    // more items than _defaultRowCount), append one empty row so there's
+    // still somewhere to add the next product — same behaviour as the
+    // auto-add in updateProductRow() during normal entry.
+    if (_productRows.every((r) => r.isValid)) {
+      _productRows.add(ProductRow());
+    }
+
     _rowSuggestions.clear();
     notifyListeners();
   }
@@ -118,7 +133,10 @@ class StickyNoteFormProvider extends ChangeNotifier {
     _initializeRows();
     _error = null;
     _customerSearchTimer?.cancel();
-    _productSearchTimer?.cancel();
+    for (final timer in _productSearchTimers.values) {
+      timer.cancel();
+    }
+    _productSearchTimers.clear();
     notifyListeners();
   }
 
@@ -213,11 +231,11 @@ class StickyNoteFormProvider extends ChangeNotifier {
       return cached;
     }
 
-    // ── Cache miss: debounce then fetch ─────────────────────────────────────
-    _productSearchTimer?.cancel();
+    // ── Cache miss: debounce then fetch (per-row, doesn't affect other rows) ─
+    _productSearchTimers[rowIndex]?.cancel();
     final completer = Completer<List<ProductSuggestion>>();
 
-    _productSearchTimer = Timer(
+    _productSearchTimers[rowIndex] = Timer(
       const Duration(milliseconds: 350),
       () async {
         final results = await _fetchProducts(rowIndex, cacheKey);
@@ -279,6 +297,16 @@ class StickyNoteFormProvider extends ChangeNotifier {
   void updateProductRow(int index, ProductRow row) {
     if (index >= 0 && index < _productRows.length) {
       _productRows[index] = row;
+
+      // Auto-add a fresh empty row once the LAST row gets fully filled in
+      // (product name + valid quantity), so there's always a blank row
+      // ready for the next product — no need to tap "Add Product" by hand
+      // every single time while entering a multi-item note.
+      final isLastRow = index == _productRows.length - 1;
+      if (isLastRow && row.isValid) {
+        _productRows.add(ProductRow());
+      }
+
       notifyListeners();
     }
   }
@@ -313,14 +341,26 @@ class StickyNoteFormProvider extends ChangeNotifier {
       _productRows.removeAt(index);
       _rowSuggestions.remove(index);
       // Re-index suggestions above the removed row.
-      final rebuilt = <int, List<ProductSuggestion>>{};
+      final rebuiltSuggestions = <int, List<ProductSuggestion>>{};
       for (final entry in _rowSuggestions.entries) {
         final k = entry.key > index ? entry.key - 1 : entry.key;
-        rebuilt[k] = entry.value;
+        rebuiltSuggestions[k] = entry.value;
       }
       _rowSuggestions
         ..clear()
-        ..addAll(rebuilt);
+        ..addAll(rebuiltSuggestions);
+
+      // Same re-indexing for the per-row debounce timers.
+      _productSearchTimers.remove(index)?.cancel();
+      final rebuiltTimers = <int, Timer>{};
+      for (final entry in _productSearchTimers.entries) {
+        final k = entry.key > index ? entry.key - 1 : entry.key;
+        rebuiltTimers[k] = entry.value;
+      }
+      _productSearchTimers
+        ..clear()
+        ..addAll(rebuiltTimers);
+
       notifyListeners();
     }
   }
@@ -385,7 +425,9 @@ class StickyNoteFormProvider extends ChangeNotifier {
   @override
   void dispose() {
     _customerSearchTimer?.cancel();
-    _productSearchTimer?.cancel();
+    for (final timer in _productSearchTimers.values) {
+      timer.cancel();
+    }
     super.dispose();
   }
 }

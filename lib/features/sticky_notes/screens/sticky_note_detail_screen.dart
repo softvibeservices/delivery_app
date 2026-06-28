@@ -128,7 +128,8 @@ class StickyNoteDetailScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   _infoRow(
                     Icons.calendar_today_outlined,
-                    DateFormat('MMM dd, yyyy • hh:mm a').format(note.createdAt),
+                    DateFormat('MMM dd, yyyy • hh:mm a', 'en_US')
+                        .format(note.createdAt),
                   ),
                 ],
               ),

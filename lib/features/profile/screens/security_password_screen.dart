@@ -151,6 +151,7 @@ class _SecurityPasswordScreenState extends State<SecurityPasswordScreen> {
               padding: const EdgeInsets.all(16),
               child: Form(
                 key: _formKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -236,6 +237,7 @@ class _SecurityPasswordScreenState extends State<SecurityPasswordScreen> {
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: _otpSent ? Colors.green : const Color(0xFF2B8CEE),
+                foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -284,6 +286,14 @@ class _SecurityPasswordScreenState extends State<SecurityPasswordScreen> {
                 controller: _newPasswordController,
                 enabled: _otpSent,
                 obscureText: _obscureNew,
+                onChanged: (_) {
+                  // Re-runs the Confirm field's "do they match" check as the
+                  // user keeps typing the new password, instead of only
+                  // catching a mismatch when the user taps "Change Password".
+                  if (_confirmPasswordController.text.isNotEmpty) {
+                    _formKey.currentState?.validate();
+                  }
+                },
                 decoration: _inputDecoration(
                   hint: 'Enter new password',
                   icon: Icons.lock_outline,
@@ -334,6 +344,7 @@ class _SecurityPasswordScreenState extends State<SecurityPasswordScreen> {
                 onPressed: _otpSent && !_isChangingPassword ? _changePassword : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

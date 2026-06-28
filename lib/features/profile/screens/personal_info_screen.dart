@@ -3,6 +3,7 @@
 // optimistic local updates, consistent section cards.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/services/storage_service.dart';
@@ -274,13 +275,21 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
         controller: _phoneController,
         enabled: _isEditing,
         keyboardType: TextInputType.phone,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(10),
+        ],
         decoration: _inputDecoration(
           hint: 'Enter your phone number',
           icon: Icons.phone_outlined,
           enabled: _isEditing,
         ),
-        validator: (v) =>
-            v == null || v.trim().isEmpty ? 'Phone is required' : null,
+        validator: (v) {
+          if (v == null || v.trim().isEmpty) return 'Phone is required';
+          final digits = v.replaceAll(RegExp(r'\D'), '');
+          if (digits.length != 10) return 'Enter a valid 10-digit number';
+          return null;
+        },
       ),
     );
   }
@@ -371,6 +380,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
             onPressed: _isSaving ? null : _saveProfile,
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2B8CEE),
+              foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
